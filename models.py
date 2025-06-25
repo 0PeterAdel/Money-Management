@@ -3,7 +3,7 @@
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from .database import Base
+from database import Base
 
 # # This is the table to link users and groups (many to many)
 group_members_table = Table('group_members', Base.metadata,
