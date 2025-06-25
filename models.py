@@ -1,9 +1,15 @@
-# models.py - Final Version with Partial Payments Support
+# models.py - Final Version with Group Wallet Support
 
-from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Table
+from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Table, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
+import enum
 from database import Base
+
+# --- Enum for Wallet Transaction Types ---
+class WalletTransactionType(enum.Enum):
+    DEPOSIT = "DEPOSIT"
+    EXPENSE = "EXPENSE"
 
 # Association table to link Users and Groups (Many-to-Many)
 group_members_table = Table('group_members', Base.metadata,
@@ -17,15 +23,10 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Defines the many-to-many relationship between User and Group
-    groups = relationship("Group",
-                            secondary=group_members_table,
-                            back_populates="members")
     
-    # Defines the one-to-many relationship for expenses paid by the user
+    groups = relationship("Group", secondary=group_members_table, back_populates="members")
     expenses_paid = relationship("Expense", back_populates="payer")
-
+    wallet_transactions = relationship("WalletTransaction", back_populates="user")
 
 class Group(Base):
     """Represents a group of users."""
@@ -34,15 +35,11 @@ class Group(Base):
     name = Column(String, index=True, nullable=False)
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Defines the many-to-many relationship between Group and User
-    members = relationship("User",
-                            secondary=group_members_table,
-                            back_populates="groups")
     
-    # Defines the one-to-many relationship for expenses belonging to the group
+    members = relationship("User", secondary=group_members_table, back_populates="groups")
     expenses = relationship("Expense", back_populates="group")
-
+    # **NEW**: A group now has a list of all its wallet transactions.
+    wallet_transactions = relationship("WalletTransaction", back_populates="group")
 
 class Expense(Base):
     """Represents a single expense transaction."""
@@ -53,47 +50,53 @@ class Expense(Base):
     currency = Column(String, default="EGP")
     date = Column(DateTime, default=datetime.utcnow)
     
-    paid_by_user_id = Column(Integer, ForeignKey("users.id"))
+    paid_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True) # Can be null if paid from wallet
     payer = relationship("User", back_populates="expenses_paid")
 
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)
     group = relationship("Group", back_populates="expenses")
 
-    # An expense can generate multiple debts (one for each participant except the payer)
+    # If paid by a person, it generates debts. If from wallet, it generates wallet transactions.
     debts = relationship("Debt", back_populates="expense", cascade="all, delete-orphan")
-
 
 class Debt(Base):
     """Represents a debt owed by one user to another for a specific expense."""
     __tablename__ = "debts"
     id = Column(Integer, primary_key=True, index=True)
-    
-    # **MODIFIED**: This field now represents the total original amount of this specific debt portion.
     total_amount = Column(Float, nullable=False) 
-    
     is_settled = Column(Boolean, default=False)
 
-    owes_user_id = Column(Integer, ForeignKey("users.id"))     # The user who owes money
-    owed_to_user_id = Column(Integer, ForeignKey("users.id"))  # The user who is owed money
+    owes_user_id = Column(Integer, ForeignKey("users.id"))
+    owed_to_user_id = Column(Integer, ForeignKey("users.id"))
     expense_id = Column(Integer, ForeignKey("expenses.id"))
 
     expense = relationship("Expense", back_populates="debts")
     debtor = relationship("User", foreign_keys=[owes_user_id])
     creditor = relationship("User", foreign_keys=[owed_to_user_id])
-    
-    # **NEW**: A Debt can now have multiple payments associated with it.
     payments = relationship("Payment", back_populates="debt", cascade="all, delete-orphan")
 
-
 class Payment(Base):
-    """
-    **NEW TABLE**: Represents a single partial (or full) payment made towards a debt.
-    """
+    """Represents a single partial (or full) payment made towards a debt."""
     __tablename__ = "payments"
     id = Column(Integer, primary_key=True, index=True)
     amount = Column(Float, nullable=False)
     date = Column(DateTime, default=datetime.utcnow)
     
-    # Foreign key to link this payment back to the debt it belongs to.
     debt_id = Column(Integer, ForeignKey("debts.id"))
     debt = relationship("Debt", back_populates="payments")
+
+# --- NEW TABLE: WalletTransaction ---
+class WalletTransaction(Base):
+    """Represents a transaction (deposit or expense) for a group's wallet."""
+    __tablename__ = "wallet_transactions"
+    id = Column(Integer, primary_key=True, index=True)
+    amount = Column(Float, nullable=False) # Positive for deposit, negative for expense
+    type = Column(Enum(WalletTransactionType), nullable=False)
+    description = Column(String)
+    date = Column(DateTime, default=datetime.utcnow)
+    
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False) # The user who initiated the transaction
+    
+    group = relationship("Group", back_populates="wallet_transactions")
+    user = relationship("User", back_populates="wallet_transactions")
