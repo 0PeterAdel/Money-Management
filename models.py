@@ -1,48 +1,51 @@
-# models.py
+# models.py - Final Version with Partial Payments Support
 
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
 
-# # This is the table to link users and groups (many to many)
+# Association table to link Users and Groups (Many-to-Many)
 group_members_table = Table('group_members', Base.metadata,
     Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
     Column('group_id', Integer, ForeignKey('groups.id'), primary_key=True)
 )
 
 class User(Base):
+    """Represents a user in the system."""
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # User relationship with the groups to which he belongs
+    # Defines the many-to-many relationship between User and Group
     groups = relationship("Group",
                             secondary=group_members_table,
                             back_populates="members")
     
-    # User relationship to expenses paid
+    # Defines the one-to-many relationship for expenses paid by the user
     expenses_paid = relationship("Expense", back_populates="payer")
 
 
 class Group(Base):
+    """Represents a group of users."""
     __tablename__ = "groups"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Group relationship with members
+    # Defines the many-to-many relationship between Group and User
     members = relationship("User",
                             secondary=group_members_table,
                             back_populates="groups")
     
-    # The group's relationship to its expenses
+    # Defines the one-to-many relationship for expenses belonging to the group
     expenses = relationship("Expense", back_populates="group")
 
 
 class Expense(Base):
+    """Represents a single expense transaction."""
     __tablename__ = "expenses"
     id = Column(Integer, primary_key=True, index=True)
     description = Column(String, index=True)
@@ -50,33 +53,47 @@ class Expense(Base):
     currency = Column(String, default="EGP")
     date = Column(DateTime, default=datetime.utcnow)
     
-    # Who paid this expense (one-to-many relationship with the user)
     paid_by_user_id = Column(Integer, ForeignKey("users.id"))
     payer = relationship("User", back_populates="expenses_paid")
 
-    # Which group does this expense belong to? (It can be blank if it is personal expense)
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)
     group = relationship("Group", back_populates="expenses")
 
-    # All debts associated with this expense
+    # An expense can generate multiple debts (one for each participant except the payer)
     debts = relationship("Debt", back_populates="expense", cascade="all, delete-orphan")
 
 
 class Debt(Base):
+    """Represents a debt owed by one user to another for a specific expense."""
     __tablename__ = "debts"
     id = Column(Integer, primary_key=True, index=True)
-    amount = Column(Float, nullable=False)
+    
+    # **MODIFIED**: This field now represents the total original amount of this specific debt portion.
+    total_amount = Column(Float, nullable=False) 
+    
     is_settled = Column(Boolean, default=False)
 
-    # Who does this debt belong to? (Relationship with the debtor user)
-    owes_user_id = Column(Integer, ForeignKey("users.id"))
-    # To whom the debt should be paid (relationship with the creditor user)
-    owed_to_user_id = Column(Integer, ForeignKey("users.id"))
-
-    # Which expense does this debt belong to? (Relationship with expense)
+    owes_user_id = Column(Integer, ForeignKey("users.id"))     # The user who owes money
+    owed_to_user_id = Column(Integer, ForeignKey("users.id"))  # The user who is owed money
     expense_id = Column(Integer, ForeignKey("expenses.id"))
-    expense = relationship("Expense", back_populates="debts")
 
-    # For easy access to user data
+    expense = relationship("Expense", back_populates="debts")
     debtor = relationship("User", foreign_keys=[owes_user_id])
     creditor = relationship("User", foreign_keys=[owed_to_user_id])
+    
+    # **NEW**: A Debt can now have multiple payments associated with it.
+    payments = relationship("Payment", back_populates="debt", cascade="all, delete-orphan")
+
+
+class Payment(Base):
+    """
+    **NEW TABLE**: Represents a single partial (or full) payment made towards a debt.
+    """
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True, index=True)
+    amount = Column(Float, nullable=False)
+    date = Column(DateTime, default=datetime.utcnow)
+    
+    # Foreign key to link this payment back to the debt it belongs to.
+    debt_id = Column(Integer, ForeignKey("debts.id"))
+    debt = relationship("Debt", back_populates="payments")
