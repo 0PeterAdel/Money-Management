@@ -9,10 +9,7 @@ from collections import defaultdict
 import math
 import json
 
-# Import everything from our other project files
-import models
-import database
-import security
+import models, database, security
 from database import SessionLocal, engine
 from pydantic import BaseModel, ConfigDict
 from models import WalletTransactionType, ActionType, ActionStatus
@@ -28,7 +25,7 @@ app = FastAPI(
     description="The ultimate collaborative finance API with a secure voting and confirmation system."
 )
 
-# --- Startup Event to Seed Default Categories ---
+# --- Startup Event ---
 @app.on_event("startup")
 def startup_event():
     db = SessionLocal()
@@ -41,18 +38,14 @@ def startup_event():
     finally:
         db.close()
 
-# --- Database Dependency ---
 def get_db():
     db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    try: yield db
+    finally: db.close()
 
 # =================================================================
-# DTOs (Pydantic Models) - Defines the shape of API data
+# DTOs (Pydantic Models)
 # =================================================================
-
 class UserBase(BaseModel): name: str
 class UserCreate(UserBase):
     password: str
@@ -69,7 +62,7 @@ class PendingActionResponse(BaseModel):
     id: int
     action_type: ActionType
     status: ActionStatus
-    details: dict 
+    details: dict
     initiator: User
     votes: List[ActionVoteResponse]
     model_config = ConfigDict(from_attributes=True)
@@ -100,7 +93,11 @@ class DebtResponse(BaseModel):
 class PaymentResponse(BaseModel):
     id: int; amount: float; date: datetime
     model_config = ConfigDict(from_attributes=True)
-
+class LinkTelegramRequest(BaseModel):
+    username: str
+    password: str
+    telegram_id: str
+    
 # =================================================================
 # Helper Functions & Core Logic
 # =================================================================
@@ -146,11 +143,15 @@ def _process_action_vote(action_id: int, db: Session):
     rejections = sum(1 for v in votes if v.vote is False)
     if approvals / total_voters > 0.5:
         action.status = ActionStatus.CONFIRMED
-        if action.action_type == ActionType.EXPENSE: _execute_confirmed_expense(json.loads(action.details), db)
-        elif action.action_type == ActionType.WALLET_DEPOSIT: _execute_confirmed_deposit(json.loads(action.details), db)
+        details = json.loads(action.details)
+        if action.action_type == ActionType.EXPENSE: _execute_confirmed_expense(details, db)
+        elif action.action_type == ActionType.WALLET_DEPOSIT: _execute_confirmed_deposit(details, db)
     elif rejections / total_voters >= 0.5:
         action.status = ActionStatus.REJECTED
     db.commit()
+
+def format_debt_response(debt: models.Debt) -> DebtResponse:
+    return DebtResponse(id=debt.id, total_amount=debt.total_amount, remaining_amount=calculate_remaining_amount(debt), is_settled=debt.is_settled, expense_id=debt.expense_id, debtor=debt.debtor, creditor=debt.creditor, payments=debt.payments)
 
 # =================================================================
 # API Endpoints
@@ -171,6 +172,18 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 @app.get("/users", response_model=List[User], tags=["Users & Security"])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.User).offset(skip).limit(limit).all()
+
+@app.post("/users/link-telegram", response_model=User, tags=["Users & Security"])
+def link_telegram_account(link_request: LinkTelegramRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.name == link_request.username).first()
+    if not user or not security.verify_password(link_request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    existing_link = db.query(models.User).filter(models.User.telegram_id == link_request.telegram_id).first()
+    if existing_link and existing_link.id != user.id:
+        raise HTTPException(status_code=400, detail="This Telegram account is already linked to another user.")
+    user.telegram_id = link_request.telegram_id
+    db.commit(); db.refresh(user)
+    return user
 
 @app.delete("/users/{user_id}", response_model=MessageResponse, tags=["Users & Security"])
 def delete_user(user_id: int, db: Session = Depends(get_db)):
@@ -255,10 +268,7 @@ def request_new_expense(expense: ExpenseRequest, background_tasks: BackgroundTas
     for voter_id in expense.participant_ids:
         db.add(models.ActionVote(action_id=pending_action.id, voter_id=voter_id, vote=(True if voter_id == expense.paid_by_user_id else None)))
     db.commit(); db.refresh(pending_action)
-    initiator = db.query(models.User).get(expense.paid_by_user_id)
-    message = f"🔔 *New Expense Request*\n\n`{initiator.name}` wants to log an expense:\n- *Desc:* {expense.description}\n- *Amount:* {expense.total_amount}\n\nPlease vote via the app."
-    for user in voter_users:
-        if user.telegram_id: background_tasks.add_task(send_telegram_message, chat_id=user.telegram_id, message=message)
+    # The bot will handle notifications by polling, no need to send from here.
     background_tasks.add_task(_process_action_vote, pending_action.id, db)
     db.refresh(pending_action)
     pending_action.details = json.loads(pending_action.details)
@@ -273,19 +283,16 @@ def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, backgro
     if not voter_users:
         _execute_confirmed_deposit(deposit.dict(), db)
         db.commit()
-        # This part should return a consistent response, not raise an exception with a message
-        # Let's create a dummy confirmed action response
-        return {"message": "Deposit auto-confirmed as you are the only member."} # Simplified for now
-    action_details = json.dumps(deposit.dict())
+        raise HTTPException(status_code=200, detail="Deposit auto-confirmed as you are the only member.")
+    deposit_details = deposit.dict()
+    deposit_details['group_id'] = group_id
+    action_details = json.dumps(deposit_details)
     pending_action = models.PendingAction(action_type=ActionType.WALLET_DEPOSIT, details=action_details, group_id=group_id, initiator_id=deposit.user_id)
     db.add(pending_action); db.flush()
     for member in group.members:
         db.add(models.ActionVote(action_id=pending_action.id, voter_id=member.id, vote=(True if member.id == deposit.user_id else None)))
     db.commit(); db.refresh(pending_action)
-    initiator = db.query(models.User).get(deposit.user_id)
-    message = f"🔔 *New Deposit Confirmation*\n\n`{initiator.name}` claims to have deposited *{deposit.amount}* into the '{group.name}' group wallet.\nPlease vote to confirm."
-    for user in voter_users:
-        if user.telegram_id: background_tasks.add_task(send_telegram_message, chat_id=user.telegram_id, message=message)
+    # The bot will handle notifications by polling
     background_tasks.add_task(_process_action_vote, pending_action.id, db)
     db.refresh(pending_action)
     pending_action.details = json.loads(pending_action.details)
@@ -295,13 +302,7 @@ def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, backgro
 @app.get("/debts/history", response_model=List[DebtResponse], tags=["Expenses & Debts"])
 def get_all_debts_history(db: Session = Depends(get_db)):
     debts = db.query(models.Debt).options(joinedload(models.Debt.debtor), joinedload(models.Debt.creditor), joinedload(models.Debt.payments)).join(models.Expense).filter(models.Expense.status == ActionStatus.CONFIRMED).all()
-    # Manual formatting to include remaining_amount
-    response = []
-    for debt in debts:
-        debt_data = {**debt.__dict__}
-        debt_data['remaining_amount'] = calculate_remaining_amount(debt)
-        response.append(debt_data)
-    return response
+    return [format_debt_response(debt) for debt in debts]
 
 @app.get("/groups/{group_id}/wallet/balance", response_model=WalletBalanceResponse, tags=["Group Wallet"])
 def get_wallet_balance(group_id: int, db: Session = Depends(get_db)):
@@ -352,15 +353,18 @@ def settle_group_debts_from_wallet(group_id: int, request: SettleDebtsRequest, d
 @app.get("/balance-summary", response_model=List[BalanceSummaryResponse], tags=["Smart Features"])
 def get_balance_summary(db: Session = Depends(get_db)):
     net_balances = defaultdict(float)
+    # Step 1: Calculate balances from CONFIRMED inter-personal debts
     unsettled_debts = db.query(models.Debt).join(models.Expense).filter(models.Debt.is_settled == False, models.Expense.status == ActionStatus.CONFIRMED).all()
     for debt in unsettled_debts:
         remaining = calculate_remaining_amount(debt)
         if remaining > 0:
             net_balances[debt.owed_to_user_id] += remaining
             net_balances[debt.owes_user_id] -= remaining
+    # Step 2: Calculate balances from CONFIRMED wallet transactions
     wallet_balances_query = (db.query(models.WalletTransaction.user_id, func.sum(models.WalletTransaction.amount).label("balance")).filter(models.WalletTransaction.status == ActionStatus.CONFIRMED).group_by(models.WalletTransaction.user_id).all())
     for user_id, balance in wallet_balances_query:
         if balance is not None: net_balances[user_id] += balance
+    # Step 3: Generate the simplified settlement plan
     debtors = sorted([(uid, bal) for uid, bal in net_balances.items() if bal < -0.01], key=lambda x: x[1])
     creditors = sorted([(uid, bal) for uid, bal in net_balances.items() if bal > 0.01], key=lambda x: x[1], reverse=True)
     settlement_plan = []
