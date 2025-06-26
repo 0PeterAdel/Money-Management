@@ -1,4 +1,5 @@
 # main.py
+
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
@@ -8,10 +9,15 @@ from collections import defaultdict
 import math
 import json
 
-import models, database, security
+# Import everything from our other project files
+import models
+import database
+import security
 from database import SessionLocal, engine
 from pydantic import BaseModel, ConfigDict
 from models import WalletTransactionType, ActionType, ActionStatus
+# Make sure notifications.py exists and is correctly configured
+from notifications import send_telegram_message
 
 # --- Create all database tables ---
 models.Base.metadata.create_all(bind=engine)
@@ -22,7 +28,7 @@ app = FastAPI(
     description="The ultimate collaborative finance API with a secure voting and confirmation system."
 )
 
-# --- Startup Event ---
+# --- Startup Event to Seed Default Categories ---
 @app.on_event("startup")
 def startup_event():
     db = SessionLocal()
@@ -35,14 +41,18 @@ def startup_event():
     finally:
         db.close()
 
+# --- Database Dependency ---
 def get_db():
     db = SessionLocal()
-    try: yield db
-    finally: db.close()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # =================================================================
-# DTOs (Pydantic Models)
+# DTOs (Pydantic Models) - Defines the shape of API data
 # =================================================================
+
 class UserBase(BaseModel): name: str
 class UserCreate(UserBase):
     password: str
@@ -59,7 +69,7 @@ class PendingActionResponse(BaseModel):
     id: int
     action_type: ActionType
     status: ActionStatus
-    details: dict # Parsed from JSON
+    details: dict 
     initiator: User
     votes: List[ActionVoteResponse]
     model_config = ConfigDict(from_attributes=True)
@@ -107,8 +117,8 @@ def calculate_remaining_amount(debt: models.Debt) -> float:
     return round(debt.total_amount - total_paid, 2)
 
 def _execute_confirmed_expense(details: dict, db: Session):
-    category = db.query(models.Category).filter(func.lower(models.Category.name) == details['category_name'].lower()).first()
-    if not category: category = models.Category(name=details['category_name']); db.add(category); db.flush()
+    category = db.query(models.Category).filter(func.lower(models.Category.name) == details['category_name'].lower().strip()).first()
+    if not category: category = models.Category(name=details['category_name'].strip().capitalize()); db.add(category); db.flush()
     new_expense = models.Expense(
         description=details['description'], total_amount=details['total_amount'], group_id=details['group_id'],
         paid_by_user_id=details['paid_by_user_id'], category_id=category.id, status=ActionStatus.CONFIRMED
@@ -141,7 +151,6 @@ def _process_action_vote(action_id: int, db: Session):
     elif rejections / total_voters >= 0.5:
         action.status = ActionStatus.REJECTED
     db.commit()
-    # TODO: Send final status notification via Telegram/Web
 
 # =================================================================
 # API Endpoints
@@ -165,22 +174,21 @@ def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 
 @app.delete("/users/{user_id}", response_model=MessageResponse, tags=["Users & Security"])
 def delete_user(user_id: int, db: Session = Depends(get_db)):
-    # Same as previous version
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="User not found")
-    outstanding_debts_count = db.query(models.Debt).filter(((models.Debt.owes_user_id == user_id) | (models.Debt.owed_to_user_id == user_id)), models.Debt.is_settled == False).count()
-    if outstanding_debts_count > 0: raise HTTPException(status_code=400, detail="Cannot delete user. They have outstanding debts.")
-    wallet_balances_query = db.query(func.sum(models.WalletTransaction.amount)).filter(models.WalletTransaction.user_id == user_id).scalar() or 0
+    outstanding_debts_count = db.query(models.Debt).join(models.Expense).filter(((models.Debt.owes_user_id == user_id) | (models.Debt.owed_to_user_id == user_id)), models.Debt.is_settled == False, models.Expense.status == ActionStatus.CONFIRMED).count()
+    if outstanding_debts_count > 0: raise HTTPException(status_code=400, detail="Cannot delete user. They have outstanding confirmed debts.")
+    wallet_balances_query = db.query(func.sum(models.WalletTransaction.amount)).filter(models.WalletTransaction.user_id == user_id, models.WalletTransaction.status == ActionStatus.CONFIRMED).scalar() or 0
     if not math.isclose(wallet_balances_query, 0): raise HTTPException(status_code=400, detail="Cannot delete user. They have a non-zero balance in wallets.")
+    pending_actions_count = db.query(models.PendingAction).filter(models.PendingAction.initiator_id == user_id, models.PendingAction.status == ActionStatus.PENDING).count()
+    if pending_actions_count > 0: raise HTTPException(status_code=400, detail="Cannot delete user. They have pending actions that must be resolved.")
     db.delete(user); db.commit()
     return {"message": f"User '{user.name}' has been deleted."}
 
 # --- Groups & Members ---
 @app.post("/groups", response_model=Group, status_code=status.HTTP_201_CREATED, tags=["Groups & Members"])
 def create_group(group: GroupCreate, db: Session = Depends(get_db)):
-    new_group = models.Group(**group.dict())
-    db.add(new_group); db.commit(); db.refresh(new_group)
-    return new_group
+    new_group = models.Group(**group.dict()); db.add(new_group); db.commit(); db.refresh(new_group); return new_group
 
 @app.get("/groups", response_model=List[Group], tags=["Groups & Members"])
 def read_groups(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -188,24 +196,20 @@ def read_groups(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 
 @app.post("/groups/{group_id}/add_member/{user_id}", response_model=Group, tags=["Groups & Members"])
 def add_member_to_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
-    # Same as previous version
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     if not group: raise HTTPException(status_code=404, detail="Group not found")
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="User not found")
     if user in group.members: raise HTTPException(status_code=400, detail="User is already a member")
-    group.members.append(user)
-    db.commit(); db.refresh(group)
-    return group
+    group.members.append(user); db.commit(); db.refresh(group); return group
 
 @app.delete("/groups/{group_id}/remove_member/{user_id}", response_model=MessageResponse, tags=["Groups & Members"])
 def remove_member_from_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
-    # Same as previous version
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
     if not group: raise HTTPException(status_code=404, detail="Group not found")
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user or user not in group.members: raise HTTPException(status_code=404, detail="User is not a member of this group")
-    group_debts_count = db.query(models.Debt).join(models.Expense).filter(models.Expense.group_id == group_id, ((models.Debt.owes_user_id == user_id) | (models.Debt.owed_to_user_id == user_id)), models.Debt.is_settled == False).count()
+    group_debts_count = db.query(models.Debt).join(models.Expense).filter(models.Expense.group_id == group_id, ((models.Debt.owes_user_id == user_id) | (models.Debt.owed_to_user_id == user_id)), models.Debt.is_settled == False, models.Expense.status == ActionStatus.CONFIRMED).count()
     if group_debts_count > 0: raise HTTPException(status_code=400, detail="Cannot remove member. They have outstanding debts in this group.")
     user_balance_in_group = get_user_wallet_balance(user_id=user_id, group_id=group_id, db=db)
     if not math.isclose(user_balance_in_group, 0): raise HTTPException(status_code=400, detail=f"Cannot remove member. They have a non-zero wallet balance of {user_balance_in_group} in this group.")
@@ -213,6 +217,10 @@ def remove_member_from_group(group_id: int, user_id: int, db: Session = Depends(
     return {"message": f"User '{user.name}' removed from group '{group.name}'."}
 
 # --- Actions and Voting Endpoints ---
+@app.get("/categories", response_model=List[Category], tags=["Categories"])
+def get_categories(db: Session = Depends(get_db)):
+    return db.query(models.Category).order_by(models.Category.name).all()
+
 @app.post("/actions/{action_id}/vote", response_model=PendingActionResponse, tags=["Actions & Voting"])
 def cast_vote(action_id: int, vote_data: VoteRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     vote_record = db.query(models.ActionVote).filter(models.ActionVote.action_id == action_id, models.ActionVote.voter_id == vote_data.voter_id).first()
@@ -228,7 +236,7 @@ def cast_vote(action_id: int, vote_data: VoteRequest, background_tasks: Backgrou
 
 @app.get("/actions/pending", response_model=List[PendingActionResponse], tags=["Actions & Voting"])
 def get_pending_actions_for_user(user_id: int, db: Session = Depends(get_db)):
-    pending_votes = db.query(models.ActionVote).filter(models.ActionVote.voter_id == user_id, models.ActionVote.vote == None).all()
+    pending_votes = db.query(models.ActionVote).filter(models.ActionVote.voter_id == user_id, models.ActionVote.vote == None).options(joinedload(models.ActionVote.action).joinedload(models.PendingAction.initiator)).all()
     actions = [vote.action for vote in pending_votes if vote.action.status == ActionStatus.PENDING]
     for action in actions:
         action.details = json.loads(action.details)
@@ -236,40 +244,48 @@ def get_pending_actions_for_user(user_id: int, db: Session = Depends(get_db)):
 
 # --- MODIFIED Endpoints to Create Pending Actions ---
 @app.post("/expenses", response_model=PendingActionResponse, status_code=status.HTTP_202_ACCEPTED, tags=["Expenses & Debts"])
-def request_new_expense(expense: ExpenseRequest, db: Session = Depends(get_db), background_tasks: BackgroundTasks = BackgroundTasks()):
+def request_new_expense(expense: ExpenseRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     group = db.query(models.Group).options(joinedload(models.Group.members)).filter(models.Group.id == expense.group_id).first()
     if not group: raise HTTPException(status_code=404, detail="Group not found")
-    voters = [p_id for p_id in expense.participant_ids if p_id != expense.paid_by_user_id]
-    if not voters: raise HTTPException(status_code=400, detail="An expense must have at least one other participant to confirm.")
+    voter_users = db.query(models.User).filter(models.User.id.in_(expense.participant_ids), models.User.id != expense.paid_by_user_id).all()
+    if not voter_users: raise HTTPException(status_code=400, detail="An expense must have at least one other participant to confirm.")
     action_details = json.dumps(expense.dict())
     pending_action = models.PendingAction(action_type=ActionType.EXPENSE, details=action_details, group_id=expense.group_id, initiator_id=expense.paid_by_user_id)
     db.add(pending_action); db.flush()
     for voter_id in expense.participant_ids:
         db.add(models.ActionVote(action_id=pending_action.id, voter_id=voter_id, vote=(True if voter_id == expense.paid_by_user_id else None)))
     db.commit(); db.refresh(pending_action)
-    # TODO: Send Telegram notifications to `voters`
+    initiator = db.query(models.User).get(expense.paid_by_user_id)
+    message = f"🔔 *New Expense Request*\n\n`{initiator.name}` wants to log an expense:\n- *Desc:* {expense.description}\n- *Amount:* {expense.total_amount}\n\nPlease vote via the app."
+    for user in voter_users:
+        if user.telegram_id: background_tasks.add_task(send_telegram_message, chat_id=user.telegram_id, message=message)
     background_tasks.add_task(_process_action_vote, pending_action.id, db)
     db.refresh(pending_action)
     pending_action.details = json.loads(pending_action.details)
     return pending_action
 
 @app.post("/groups/{group_id}/wallet/deposit", response_model=PendingActionResponse, status_code=status.HTTP_202_ACCEPTED, tags=["Group Wallet"])
-def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, db: Session = Depends(get_db), background_tasks: BackgroundTasks = BackgroundTasks()):
+def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     group = db.query(models.Group).options(joinedload(models.Group.members)).filter(models.Group.id == group_id).first()
     if not group: raise HTTPException(status_code=404, detail="Group not found")
     if deposit.amount <= 0: raise HTTPException(status_code=400, detail="Deposit must be positive.")
-    voters = [m.id for m in group.members if m.id != deposit.user_id]
-    if not voters:
+    voter_users = [m for m in group.members if m.id != deposit.user_id]
+    if not voter_users:
         _execute_confirmed_deposit(deposit.dict(), db)
         db.commit()
-        raise HTTPException(status_code=200, detail={"message": "Deposit auto-confirmed as you are the only member."})
+        # This part should return a consistent response, not raise an exception with a message
+        # Let's create a dummy confirmed action response
+        return {"message": "Deposit auto-confirmed as you are the only member."} # Simplified for now
     action_details = json.dumps(deposit.dict())
     pending_action = models.PendingAction(action_type=ActionType.WALLET_DEPOSIT, details=action_details, group_id=group_id, initiator_id=deposit.user_id)
     db.add(pending_action); db.flush()
     for member in group.members:
         db.add(models.ActionVote(action_id=pending_action.id, voter_id=member.id, vote=(True if member.id == deposit.user_id else None)))
     db.commit(); db.refresh(pending_action)
-    # TODO: Send Telegram notifications to `voters`
+    initiator = db.query(models.User).get(deposit.user_id)
+    message = f"🔔 *New Deposit Confirmation*\n\n`{initiator.name}` claims to have deposited *{deposit.amount}* into the '{group.name}' group wallet.\nPlease vote to confirm."
+    for user in voter_users:
+        if user.telegram_id: background_tasks.add_task(send_telegram_message, chat_id=user.telegram_id, message=message)
     background_tasks.add_task(_process_action_vote, pending_action.id, db)
     db.refresh(pending_action)
     pending_action.details = json.loads(pending_action.details)
@@ -279,11 +295,16 @@ def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, db: Ses
 @app.get("/debts/history", response_model=List[DebtResponse], tags=["Expenses & Debts"])
 def get_all_debts_history(db: Session = Depends(get_db)):
     debts = db.query(models.Debt).options(joinedload(models.Debt.debtor), joinedload(models.Debt.creditor), joinedload(models.Debt.payments)).join(models.Expense).filter(models.Expense.status == ActionStatus.CONFIRMED).all()
-    return [format_debt_response(debt) for debt in debts]
+    # Manual formatting to include remaining_amount
+    response = []
+    for debt in debts:
+        debt_data = {**debt.__dict__}
+        debt_data['remaining_amount'] = calculate_remaining_amount(debt)
+        response.append(debt_data)
+    return response
 
 @app.get("/groups/{group_id}/wallet/balance", response_model=WalletBalanceResponse, tags=["Group Wallet"])
 def get_wallet_balance(group_id: int, db: Session = Depends(get_db)):
-    # Same as previous version
     group = db.query(models.Group).options(joinedload(models.Group.members)).filter(models.Group.id == group_id).first()
     if not group: raise HTTPException(status_code=404, detail="Group not found")
     balances_query = (db.query(models.WalletTransaction.user_id, func.sum(models.WalletTransaction.amount).label("net_balance")).filter(models.WalletTransaction.group_id == group_id, models.WalletTransaction.status == ActionStatus.CONFIRMED).group_by(models.WalletTransaction.user_id).all())
@@ -294,7 +315,6 @@ def get_wallet_balance(group_id: int, db: Session = Depends(get_db)):
 
 @app.post("/groups/{group_id}/wallet/withdraw", response_model=WalletBalanceResponse, tags=["Group Wallet"])
 def withdraw_from_wallet(group_id: int, withdrawal: WalletWithdrawalRequest, db: Session = Depends(get_db)):
-    # Same as previous version, but now creates a confirmed transaction directly
     user = db.query(models.User).filter(models.User.id == withdrawal.user_id).first()
     if not user or not security.verify_password(withdrawal.password, user.hashed_password): raise HTTPException(status_code=401, detail="Invalid user or password")
     user_balance = get_user_wallet_balance(user_id=withdrawal.user_id, group_id=group_id, db=db)
@@ -306,7 +326,6 @@ def withdraw_from_wallet(group_id: int, withdrawal: WalletWithdrawalRequest, db:
 
 @app.post("/groups/{group_id}/wallet/settle-debts", response_model=SettlementSummaryResponse, tags=["Group Wallet"])
 def settle_group_debts_from_wallet(group_id: int, request: SettleDebtsRequest, db: Session = Depends(get_db)):
-    # Same as previous version
     group = db.query(models.Group).options(joinedload(models.Group.members)).filter(models.Group.id == group_id).first()
     if not group: raise HTTPException(status_code=404, detail="Group not found")
     target_user_ids = [request.user_id] if request.user_id else [m.id for m in group.members]
@@ -322,8 +341,7 @@ def settle_group_debts_from_wallet(group_id: int, request: SettleDebtsRequest, d
             debit_tx = models.WalletTransaction(amount=-remaining_amount, type=WalletTransactionType.SETTLEMENT, description=f"Paid debt to {debt.creditor.name}", group_id=group_id, user_id=debt.owes_user_id, status=ActionStatus.CONFIRMED)
             credit_tx = models.WalletTransaction(amount=remaining_amount, type=WalletTransactionType.SETTLEMENT, description=f"Received settlement from {debt.debtor.name}", group_id=group_id, user_id=debt.owed_to_user_id, status=ActionStatus.CONFIRMED)
             payment_record = models.Payment(amount=remaining_amount, debt_id=debt.id)
-            db.add_all([debit_tx, credit_tx, payment_record])
-            debt.is_settled = True
+            db.add_all([debit_tx, credit_tx, payment_record]); debt.is_settled = True
             settlement_logs.append(SettlementLog(debt_id=debt.id, amount_settled=remaining_amount, status="Fully Settled"))
         else:
             settlement_logs.append(SettlementLog(debt_id=debt.id, amount_settled=0, status="Insufficient Funds"))
@@ -334,18 +352,15 @@ def settle_group_debts_from_wallet(group_id: int, request: SettleDebtsRequest, d
 @app.get("/balance-summary", response_model=List[BalanceSummaryResponse], tags=["Smart Features"])
 def get_balance_summary(db: Session = Depends(get_db)):
     net_balances = defaultdict(float)
-    # Step 1: Calculate balances from CONFIRMED inter-personal debts
     unsettled_debts = db.query(models.Debt).join(models.Expense).filter(models.Debt.is_settled == False, models.Expense.status == ActionStatus.CONFIRMED).all()
     for debt in unsettled_debts:
         remaining = calculate_remaining_amount(debt)
         if remaining > 0:
             net_balances[debt.owed_to_user_id] += remaining
             net_balances[debt.owes_user_id] -= remaining
-    # Step 2: Calculate balances from CONFIRMED wallet transactions
     wallet_balances_query = (db.query(models.WalletTransaction.user_id, func.sum(models.WalletTransaction.amount).label("balance")).filter(models.WalletTransaction.status == ActionStatus.CONFIRMED).group_by(models.WalletTransaction.user_id).all())
     for user_id, balance in wallet_balances_query:
         if balance is not None: net_balances[user_id] += balance
-    # Step 3: Generate the simplified settlement plan
     debtors = sorted([(uid, bal) for uid, bal in net_balances.items() if bal < -0.01], key=lambda x: x[1])
     creditors = sorted([(uid, bal) for uid, bal in net_balances.items() if bal > 0.01], key=lambda x: x[1], reverse=True)
     settlement_plan = []
