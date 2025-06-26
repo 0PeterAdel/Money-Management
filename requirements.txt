@@ -3,3 +3,4 @@ fastapi
 sqlalchemy
 pydantic
 "passlib[bcrypt]"
+python-dotenv
