@@ -6,11 +6,13 @@ from telegram.ext import (
     Application, CommandHandler, ConversationHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 )
 from config import TELEGRAM_BOT_TOKEN
-# Import handlers from the new structure
+# Import all handlers
 from .handlers.registration import (
-    start_command, login_start, received_username, received_password,
+    start_command, login_start, register_start,
+    login_received_username, login_received_password,
+    register_received_username, register_received_password, register_received_confirm_password,
     set_language, received_language, cancel,
-    USERNAME, PASSWORD, LANGUAGE
+    LOGIN_USERNAME, LOGIN_PASSWORD, REGISTER_USERNAME, REGISTER_PASSWORD, REGISTER_CONFIRM_PASSWORD, LANGUAGE
 )
 from .handlers.info import balance_summary_command
 from .handlers.expenses import (
@@ -18,22 +20,19 @@ from .handlers.expenses import (
     category_selected, participant_selected, expense_confirmed,
     SELECT_GROUP, GET_DESCRIPTION, GET_AMOUNT, SELECT_CATEGORY, SELECT_PARTICIPANTS, CONFIRM_EXPENSE
 )
-# NEW import for group management
 from .handlers.groups import (
     my_groups_command, group_menu_handler, received_group_name, received_group_description, group_view_handler,
     GROUP_MENU, GROUP_CREATE_NAME, GROUP_CREATE_DESC, GROUP_VIEW
 )
-
+from .handlers.voting import my_votes_command
 from .locales import t
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# This is a placeholder for the settings command
+# This is a placeholder for the settings command, it now just starts language selection
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Starts the language selection conversation."""
     return await set_language(update, context)
-
 
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
@@ -46,17 +45,25 @@ def main() -> None:
     login_conv = ConversationHandler(
         entry_points=[CommandHandler("login", login_start)],
         states={
-            USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_username)],
-            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_password)],
+            LOGIN_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, login_received_username)],
+            LOGIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, login_received_password)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    register_conv = ConversationHandler(
+        entry_points=[CommandHandler("register", register_start)],
+        states={
+            REGISTER_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_received_username)],
+            REGISTER_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_received_password)],
+            REGISTER_CONFIRM_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_received_confirm_password)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     
     lang_conv = ConversationHandler(
         entry_points=[CommandHandler("language", set_language)],
-        states={
-            LANGUAGE: [MessageHandler(filters.Regex("^(English 🇬🇧|العربية 🇪🇬)$"), received_language)],
-        },
+        states={ LANGUAGE: [MessageHandler(filters.Regex("^(English 🇬🇧|العربية 🇪🇬)$"), received_language)] },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
@@ -83,28 +90,18 @@ def main() -> None:
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-    
-    # Settings conversation, which reuses the language handler
-    settings_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(f'^({t("btn_settings", "en")}|{t("btn_settings", "ar")})$'), settings_command)],
-        states={
-            LANGUAGE: [MessageHandler(filters.Regex("^(English 🇬🇧|العربية 🇪🇬)$"), received_language)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
 
     # --- Add all handlers ---
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(login_conv)
+    application.add_handler(register_conv)
     application.add_handler(lang_conv)
     application.add_handler(expense_conv)
     application.add_handler(groups_conv)
-    application.add_handler(settings_conv)
 
-    # Add handler for the balance button
-    application.add_handler(
-        MessageHandler(filters.Regex(f'^({t("btn_balance", "en")}|{t("btn_balance", "ar")})$'), balance_summary_command)
-    )
+    # Add handlers for main menu buttons
+    application.add_handler(MessageHandler(filters.Regex(f'^({t("btn_balance", "en")}|{t("btn_balance", "ar")})$'), balance_summary_command))
+    application.add_handler(MessageHandler(filters.Regex(f'^({t("btn_my_votes", "en")}|{t("btn_my_votes", "ar")})$'), my_votes_command))
     
     logger.info("Bot is running...")
     application.run_polling()
