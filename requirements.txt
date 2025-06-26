@@ -4,3 +4,4 @@ sqlalchemy
 pydantic
 "passlib[bcrypt]"
 python-dotenv
+python-telegram-bot
