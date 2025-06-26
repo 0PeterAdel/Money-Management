@@ -1,5 +1,4 @@
-# bot.py - Final Corrected Version
-
+# bot.py
 import logging
 import requests
 import asyncio
@@ -14,7 +13,7 @@ POLLING_INTERVAL = 20 # Check for new votes every 20 seconds
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Helper Function ---
+# --- Helper Function to send notifications with buttons ---
 async def send_vote_notification(context: ContextTypes.DEFAULT_TYPE, user_id: str, telegram_id: str, action: dict):
     details = action.get('details', {})
     action_id = action.get('id')
@@ -47,8 +46,9 @@ async def send_vote_notification(context: ContextTypes.DEFAULT_TYPE, user_id: st
     
     try:
         await context.bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
-        # Mark as notified to avoid sending again
-        context.bot_data.setdefault('notified_actions', set()).add(action_id)
+        # **FIX**: Mark notification as sent for this specific user and action
+        context.bot_data.setdefault('notified_actions', set()).add((action_id, int(user_id)))
+        logger.info(f"Notification for action {action_id} sent to user {user_id}")
     except Exception as e:
         logger.error(f"Failed to send notification for action {action_id} to {telegram_id}: {e}")
 
@@ -62,7 +62,7 @@ async def poll_for_pending_actions(context: ContextTypes.DEFAULT_TYPE):
             return
             
         users = users_response.json()
-        # **FIXED**: Using context.bot_data to store state
+        # **FIX**: Using context.bot_data to store state
         notified_actions = context.bot_data.setdefault('notified_actions', set())
 
         for user in users:
@@ -76,11 +76,12 @@ async def poll_for_pending_actions(context: ContextTypes.DEFAULT_TYPE):
                 pending_actions = actions_response.json()
                 for action in pending_actions:
                     action_id = action.get('id')
-                    if action_id not in notified_actions:
+                    # **FIX**: Check if the tuple (action_id, user_id) has been notified
+                    if (action_id, user_id) not in notified_actions:
                         logger.info(f"Found new action {action_id} for user {user_id}. Notifying...")
                         await send_vote_notification(context, str(user_id), telegram_id, action)
             else:
-                logger.warning(f"Failed to fetch pending actions for user {user_id}")
+                 logger.warning(f"Failed to fetch pending actions for user {user_id}: {actions_response.text}")
 
     except Exception as e:
         logger.error(f"Error in polling job: {e}")
@@ -88,7 +89,6 @@ async def poll_for_pending_actions(context: ContextTypes.DEFAULT_TYPE):
 # --- Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    # **FIXED**: Using HTML tags (<b> and <code>) instead of markdown characters
     await update.message.reply_html(
         rf"Hi {user.mention_html()}! Welcome. Please register your account using:"
         rf"\n<code>/register &lt;your_username&gt; &lt;your_password&gt;</code>"
@@ -139,12 +139,10 @@ def main() -> None:
 
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CallbackQueryHandler(button_callback, pattern=r'^vote_'))
 
-    # Add the background job
     job_queue = application.job_queue
     job_queue.run_repeating(poll_for_pending_actions, interval=POLLING_INTERVAL, first=5)
 
