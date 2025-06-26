@@ -1,4 +1,5 @@
-# bot/locales.py
+# bot/locales.py - ADD THE NEW KEYS
+
 translations = {
     "en": {
         "welcome": "Welcome, {name}! Please /login to get started.",
@@ -19,6 +20,13 @@ translations = {
         "expense_ask_participants": "Who participated in this expense? (Select all that apply)",
         "expense_confirm_header": "Please confirm the details:",
         "expense_request_sent": "Your expense request has been submitted for voting. ✅",
+        # --- NEW ---
+        "main_menu_prompt": "Here are the main commands:",
+        "btn_balance": "📊 My Balance",
+        "btn_new_expense": "💸 New Expense",
+        "btn_groups": "👥 My Groups",
+        "btn_settings": "⚙️ Settings",
+
     },
     "ar": {
         "welcome": "أهلاً بك، {name}! من فضلك قم بتسجيل الدخول باستخدام /login للبدء.",
@@ -39,8 +47,15 @@ translations = {
         "expense_ask_participants": "من شارك في هذا المصروف؟ (اختر كل المشاركين)",
         "expense_confirm_header": "من فضلك قم بتأكيد التفاصيل:",
         "expense_request_sent": "✅ تم إرسال طلب المصروف الخاص بك للتصويت.",
+        # --- NEW ---
+        "main_menu_prompt": "هذه هي الأوامر الرئيسية:",
+        "btn_balance": "📊 ملخصي المالي",
+        "btn_new_expense": "💸 مصروف جديد",
+        "btn_groups": "👥 مجموعاتي",
+        "btn_settings": "⚙️ الإعدادات",
     }
 }
 
 def t(key, lang="en", **kwargs):
+    # Fallback to English if a key is not found in the selected language
     return translations.get(lang, translations["en"]).get(key, key).format(**kwargs)
