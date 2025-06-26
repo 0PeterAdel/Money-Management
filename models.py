@@ -1,4 +1,4 @@
-# models.py - Final Version with Confirmation/Voting System
+# models.py
 
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Table, Enum, Text
 from sqlalchemy.orm import relationship
@@ -70,7 +70,6 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=True)
-    # **NEW**: Optional Telegram User ID for notifications
     telegram_id = Column(String, unique=True, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -92,12 +91,11 @@ class Group(Base):
 
 
 class Expense(Base):
-    # **MODIFIED**: Added status field
     __tablename__ = "expenses"
     id = Column(Integer, primary_key=True, index=True)
     description = Column(String, index=True)
     total_amount = Column(Float, nullable=False)
-    status = Column(Enum(ActionStatus), default=ActionStatus.CONFIRMED) # By default, old expenses are confirmed
+    status = Column(Enum(ActionStatus), default=ActionStatus.CONFIRMED)
     date = Column(DateTime, default=datetime.utcnow)
     
     paid_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -134,7 +132,6 @@ class Payment(Base):
 
 
 class WalletTransaction(Base):
-    # **MODIFIED**: Added status field
     __tablename__ = "wallet_transactions"
     id = Column(Integer, primary_key=True, index=True)
     amount = Column(Float, nullable=False)
