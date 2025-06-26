@@ -1,4 +1,4 @@
-# main.py
+# main.py - The Definitive Final Version with All Features
 
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
@@ -25,7 +25,7 @@ app = FastAPI(
     description="The ultimate collaborative finance API with a secure voting and confirmation system."
 )
 
-# --- Startup Event ---
+# --- Startup Event to Seed Default Categories ---
 @app.on_event("startup")
 def startup_event():
     db = SessionLocal()
@@ -38,13 +38,16 @@ def startup_event():
     finally:
         db.close()
 
+# --- Database Dependency ---
 def get_db():
     db = SessionLocal()
-    try: yield db
-    finally: db.close()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # =================================================================
-# DTOs (Pydantic Models)
+# DTOs (Pydantic Models) - Defines the shape of API data
 # =================================================================
 class UserBase(BaseModel): name: str
 class UserCreate(UserBase):
@@ -62,7 +65,7 @@ class PendingActionResponse(BaseModel):
     id: int
     action_type: ActionType
     status: ActionStatus
-    details: dict
+    details: dict 
     initiator: User
     votes: List[ActionVoteResponse]
     model_config = ConfigDict(from_attributes=True)
@@ -159,7 +162,7 @@ def format_debt_response(debt: models.Debt) -> DebtResponse:
 @app.get("/", tags=["General"])
 def read_root(): return {"message": "Welcome to the Finance Assistant System"}
 
-# --- Users & Security ---
+# --- Users & Security Endpoints ---
 @app.post("/users", response_model=User, status_code=status.HTTP_201_CREATED, tags=["Users & Security"])
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(models.User).filter(models.User.name == user.name).first()
@@ -172,6 +175,13 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 @app.get("/users", response_model=List[User], tags=["Users & Security"])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.User).offset(skip).limit(limit).all()
+
+@app.get("/users/by-name/{username}", response_model=User, tags=["Users & Security"])
+def get_user_by_name(username: str, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(func.lower(models.User.name) == username.lower()).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 @app.post("/users/link-telegram", response_model=User, tags=["Users & Security"])
 def link_telegram_account(link_request: LinkTelegramRequest, db: Session = Depends(get_db)):
@@ -207,6 +217,13 @@ def create_group(group: GroupCreate, db: Session = Depends(get_db)):
 def read_groups(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.Group).offset(skip).limit(limit).all()
 
+@app.get("/users/{user_id}/groups", response_model=List[Group], tags=["Groups & Members"])
+def get_user_groups(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).options(joinedload(models.User.groups).joinedload(models.Group.members)).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user.groups
+    
 @app.post("/groups/{group_id}/add_member/{user_id}", response_model=Group, tags=["Groups & Members"])
 def add_member_to_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
     group = db.query(models.Group).filter(models.Group.id == group_id).first()
@@ -268,7 +285,6 @@ def request_new_expense(expense: ExpenseRequest, background_tasks: BackgroundTas
     for voter_id in expense.participant_ids:
         db.add(models.ActionVote(action_id=pending_action.id, voter_id=voter_id, vote=(True if voter_id == expense.paid_by_user_id else None)))
     db.commit(); db.refresh(pending_action)
-    # The bot will handle notifications by polling, no need to send from here.
     background_tasks.add_task(_process_action_vote, pending_action.id, db)
     db.refresh(pending_action)
     pending_action.details = json.loads(pending_action.details)
@@ -281,7 +297,9 @@ def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, backgro
     if deposit.amount <= 0: raise HTTPException(status_code=400, detail="Deposit must be positive.")
     voter_users = [m for m in group.members if m.id != deposit.user_id]
     if not voter_users:
-        _execute_confirmed_deposit(deposit.dict(), db)
+        details = deposit.dict()
+        details['group_id'] = group_id
+        _execute_confirmed_deposit(details, db)
         db.commit()
         raise HTTPException(status_code=200, detail="Deposit auto-confirmed as you are the only member.")
     deposit_details = deposit.dict()
@@ -292,7 +310,6 @@ def request_wallet_deposit(group_id: int, deposit: WalletDepositRequest, backgro
     for member in group.members:
         db.add(models.ActionVote(action_id=pending_action.id, voter_id=member.id, vote=(True if member.id == deposit.user_id else None)))
     db.commit(); db.refresh(pending_action)
-    # The bot will handle notifications by polling
     background_tasks.add_task(_process_action_vote, pending_action.id, db)
     db.refresh(pending_action)
     pending_action.details = json.loads(pending_action.details)
@@ -382,18 +399,3 @@ def get_balance_summary(db: Session = Depends(get_db)):
         if math.isclose(debtors[debtor_idx][1], 0, abs_tol=0.01): debtor_idx += 1
         if math.isclose(creditors[creditor_idx][1], 0, abs_tol=0.01): creditor_idx += 1
     return settlement_plan
-
-@app.get("/users/by-name/{username}", response_model=User, tags=["Users & Security"])
-def get_user_by_name(username: str, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.name == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-@app.get("/users/{user_id}/groups", response_model=List[Group], tags=["Groups & Members"])
-def get_user_groups(user_id: int, db: Session = Depends(get_db)):
-    """Retrieves all groups that a specific user is a member of."""
-    user = db.query(models.User).options(joinedload(models.User.groups).joinedload(models.Group.members)).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user.groups
