@@ -1,4 +1,4 @@
-# models.py - Final Version with Password and Enhanced Wallet Support
+# models.py
 
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Table, Enum
 from sqlalchemy.orm import relationship
@@ -13,18 +13,26 @@ class WalletTransactionType(enum.Enum):
     WITHDRAWAL = "WITHDRAWAL"
     SETTLEMENT = "SETTLEMENT"
 
-# Association table to link Users and Groups (Many-to-Many)
+# --- NEW: Category Table ---
+class Category(Base):
+    """Represents an expense category (e.g., Food, Rent)."""
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    
+    expenses = relationship("Expense", back_populates="category")
+
+
+# Association table to link Users and Groups
 group_members_table = Table('group_members', Base.metadata,
     Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
     Column('group_id', Integer, ForeignKey('groups.id'), primary_key=True)
 )
 
 class User(Base):
-    """Represents a user in the system."""
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
-    # **NEW**: Securely stores the user's hashed password.
     hashed_password = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -34,7 +42,6 @@ class User(Base):
 
 
 class Group(Base):
-    """Represents a group of users."""
     __tablename__ = "groups"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
@@ -47,19 +54,27 @@ class Group(Base):
 
 
 class Expense(Base):
+    # **MODIFIED**: Added category_id and relationship
     __tablename__ = "expenses"
     id = Column(Integer, primary_key=True, index=True)
     description = Column(String, index=True)
     total_amount = Column(Float, nullable=False)
     currency = Column(String, default="EGP")
     date = Column(DateTime, default=datetime.utcnow)
+    
     paid_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     payer = relationship("User", back_populates="expenses_paid")
+
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)
     group = relationship("Group", back_populates="expenses")
+
+    category_id = Column(Integer, ForeignKey("categories.id"))
+    category = relationship("Category", back_populates="expenses")
+    
     debts = relationship("Debt", back_populates="expense", cascade="all, delete-orphan")
 
 
+# ... The rest of the models (Debt, Payment, WalletTransaction) remain unchanged ...
 class Debt(Base):
     __tablename__ = "debts"
     id = Column(Integer, primary_key=True, index=True)
@@ -84,8 +99,6 @@ class Payment(Base):
 
 
 class WalletTransaction(Base):
-    """Represents a transaction for a group's wallet."""
-    # **MODIFIED**: Added new Enum types
     __tablename__ = "wallet_transactions"
     id = Column(Integer, primary_key=True, index=True)
     amount = Column(Float, nullable=False)
