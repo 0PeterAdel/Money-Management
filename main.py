@@ -389,3 +389,11 @@ def get_user_by_name(username: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+@app.get("/users/{user_id}/groups", response_model=List[Group], tags=["Groups & Members"])
+def get_user_groups(user_id: int, db: Session = Depends(get_db)):
+    """Retrieves all groups that a specific user is a member of."""
+    user = db.query(models.User).options(joinedload(models.User.groups).joinedload(models.Group.members)).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user.groups

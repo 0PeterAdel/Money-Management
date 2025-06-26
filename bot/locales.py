@@ -1,4 +1,4 @@
-# bot/locales.py - ADD THE NEW KEYS
+# bot/locales.py - FULL UPDATED FILE
 
 translations = {
     "en": {
@@ -13,20 +13,26 @@ translations = {
         "owes_you": "owes you",
         "you_owe": "You owe",
         "no_debts": "Your slate is clean! No outstanding debts. ✨",
-        "expense_start": "Let's add a new expense. Which group is this for?",
-        "expense_ask_desc": "Great. What is the description of the expense?",
-        "expense_ask_amount": "Got it. What's the total amount?",
-        "expense_ask_category": "OK. Which category does this fall under?",
-        "expense_ask_participants": "Who participated in this expense? (Select all that apply)",
-        "expense_confirm_header": "Please confirm the details:",
-        "expense_request_sent": "Your expense request has been submitted for voting. ✅",
-        # --- NEW ---
         "main_menu_prompt": "Here are the main commands:",
         "btn_balance": "📊 My Balance",
         "btn_new_expense": "💸 New Expense",
         "btn_groups": "👥 My Groups",
         "btn_settings": "⚙️ Settings",
-
+        # --- NEW for Expense Flow ---
+        "expense_start": "Let's add a new expense. Which group is this for?",
+        "expense_no_groups": "You are not a member of any groups yet. Please ask someone to add you to a group first.",
+        "expense_ask_desc": "Great. What is the description of the expense? (e.g., 'Lunch at City Stars')",
+        "expense_ask_amount": "Got it. What's the total amount? (e.g., 250.50)",
+        "expense_invalid_amount": "That doesn't look like a valid amount. Please send a number.",
+        "expense_ask_category": "OK. Which category does this fall under?",
+        "expense_ask_participants": "Who participated in this expense? You are included by default. Tap to add/remove others.",
+        "expense_summary_header": "🔔 *Please confirm the details:*",
+        "expense_summary_body": "\n- *Group:* {group_name}\n- *Description:* {description}\n- *Amount:* {amount}\n- *Category:* {category}\n- *Participants:* {participants}",
+        "expense_request_sent": "✅ Your expense request has been submitted for voting.",
+        "confirm": "✅ Confirm",
+        "cancel": "❌ Cancel",
+        "done_selecting": "👍 Done",
+        "coming_soon": "This feature is coming soon!",
     },
     "ar": {
         "welcome": "أهلاً بك، {name}! من فضلك قم بتسجيل الدخول باستخدام /login للبدء.",
@@ -40,22 +46,28 @@ translations = {
         "owes_you": "مدين لك بـ",
         "you_owe": "أنت مدين لـ",
         "no_debts": "حساباتك نظيفة! لا توجد ديون معلقة. ✨",
-        "expense_start": "لنقم بإضافة مصروف جديد. لأي مجموعة هذا المصروف؟",
-        "expense_ask_desc": "ممتاز. ما هو وصف المصروف؟",
-        "expense_ask_amount": "تمام. ما هو المبلغ الإجمالي؟",
-        "expense_ask_category": "حسنًا. تحت أي تصنيف يندرج هذا المصروف؟",
-        "expense_ask_participants": "من شارك في هذا المصروف؟ (اختر كل المشاركين)",
-        "expense_confirm_header": "من فضلك قم بتأكيد التفاصيل:",
-        "expense_request_sent": "✅ تم إرسال طلب المصروف الخاص بك للتصويت.",
-        # --- NEW ---
         "main_menu_prompt": "هذه هي الأوامر الرئيسية:",
         "btn_balance": "📊 ملخصي المالي",
         "btn_new_expense": "💸 مصروف جديد",
         "btn_groups": "👥 مجموعاتي",
         "btn_settings": "⚙️ الإعدادات",
+        # --- NEW for Expense Flow ---
+        "expense_start": "لنقم بإضافة مصروف جديد. لأي مجموعة هذا المصروف؟",
+        "expense_no_groups": "أنت لست عضواً في أي مجموعة بعد. من فضلك اطلب من شخص إضافتك إلى مجموعة أولاً.",
+        "expense_ask_desc": "ممتاز. ما هو وصف المصروف؟ (مثال: 'غداء في سيتي ستارز')",
+        "expense_ask_amount": "تمام. ما هو المبلغ الإجمالي؟ (مثال: 250.50)",
+        "expense_invalid_amount": "هذا لا يبدو مبلغاً صحيحاً. من فضلك أرسل رقماً.",
+        "expense_ask_category": "حسنًا. تحت أي تصنيف يندرج هذا المصروف؟",
+        "expense_ask_participants": "من شارك في هذا المصروف؟ أنت مشارك بشكل افتراضي. اضغط لإضافة/إزالة الآخرين.",
+        "expense_summary_header": "🔔 *من فضلك قم بتأكيد التفاصيل:*",
+        "expense_summary_body": "\n- *المجموعة:* {group_name}\n- *الوصف:* {description}\n- *المبلغ:* {amount}\n- *التصنيف:* {category}\n- *المشاركون:* {participants}",
+        "expense_request_sent": "✅ تم إرسال طلب المصروف الخاص بك للتصويت.",
+        "confirm": "✅ تأكيد",
+        "cancel": "❌ إلغاء",
+        "done_selecting": "👍 تم",
+        "coming_soon": "هذه الميزة ستتوفر قريبًا!",
     }
 }
 
 def t(key, lang="en", **kwargs):
-    # Fallback to English if a key is not found in the selected language
     return translations.get(lang, translations["en"]).get(key, key).format(**kwargs)
