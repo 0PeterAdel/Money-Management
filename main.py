@@ -382,3 +382,10 @@ def get_balance_summary(db: Session = Depends(get_db)):
         if math.isclose(debtors[debtor_idx][1], 0, abs_tol=0.01): debtor_idx += 1
         if math.isclose(creditors[creditor_idx][1], 0, abs_tol=0.01): creditor_idx += 1
     return settlement_plan
+
+@app.get("/users/by-name/{username}", response_model=User, tags=["Users & Security"])
+def get_user_by_name(username: str, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.name == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
