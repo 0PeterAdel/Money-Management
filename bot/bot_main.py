@@ -5,8 +5,8 @@ from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, ConversationHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 )
+# Import configuration and handlers
 from config import TELEGRAM_BOT_TOKEN
-# Import all handlers
 from .handlers.registration import (
     start_command, login_start, register_start,
     login_received_username, login_received_password,
@@ -34,7 +34,6 @@ from .locales import t
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN is not configured!")
@@ -43,7 +42,6 @@ def main() -> None:
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
     # --- Conversation Handlers ---
-    # Each conversation is now modular
     login_conv = ConversationHandler(
         entry_points=[CommandHandler("login", login_start)],
         states={
@@ -63,8 +61,9 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     
-    settings_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(f'^({t("btn_settings", "en")}|{t("btn_settings", "ar")})$'), set_language)],
+    # We will use this one for the /language command
+    lang_conv = ConversationHandler(
+        entry_points=[CommandHandler("language", set_language)],
         states={ LANGUAGE: [MessageHandler(filters.Regex("^(English 🇬🇧|العربية 🇪🇬)$"), received_language)] },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -94,28 +93,37 @@ def main() -> None:
     )
 
     wallet_conv = ConversationHandler(
+        # **MODIFIED**: This is now the entry point for the Wallet button
         entry_points=[MessageHandler(filters.Regex(f'^({t("btn_wallet", "en")}|{t("btn_wallet", "ar")})$'), my_wallet_command)],
         states={
             WALLET_GROUP_SELECT: [CallbackQueryHandler(wallet_group_selected, pattern="^w_group_")],
             WALLET_MENU: [CallbackQueryHandler(wallet_menu_handler, pattern="^wallet_")],
             WALLET_DEPOSIT_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_deposit_amount)],
+            # Add other wallet states here when we build them
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     # --- Add all handlers ---
+    # Command Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(login_conv)
     application.add_handler(register_conv)
-    application.add_handler(settings_conv)
+    application.add_handler(lang_conv) # For the /language command
+
+    # Message Handlers that start conversations from main menu
     application.add_handler(expense_conv)
     application.add_handler(groups_conv)
-    application.add_handler(wallet_conv)
+    application.add_handler(wallet_conv) # <-- ADDED THE WALLET CONVERSATION
 
+    # Simple Message Handlers for single actions
     application.add_handler(MessageHandler(filters.Regex(f'^({t("btn_balance", "en")}|{t("btn_balance", "ar")})$'), balance_summary_command))
     application.add_handler(MessageHandler(filters.Regex(f'^({t("btn_my_votes", "en")}|{t("btn_my_votes", "ar")})$'), my_votes_command))
     
-    # Add the main callback handler for voting buttons
+    # Special handler for the settings button that reuses the language conversation
+    application.add_handler(MessageHandler(filters.Regex(f'^({t("btn_settings", "en")}|{t("btn_settings", "ar")})$'), set_language))
+    
+    # The main callback handler for all voting buttons
     application.add_handler(CallbackQueryHandler(vote_button_callback, pattern=r'^vote_'))
     
     logger.info("Bot is running...")

@@ -17,9 +17,11 @@ API_BASE_URL = "http://127.0.0.1:8000"
 
 # --- Helper function to create main menu ---
 def get_main_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    """Creates the main menu keyboard with all 5 buttons."""
     keyboard = [
         [t("btn_balance", lang), t("btn_new_expense", lang)],
-        [t("btn_groups", lang), t("btn_my_votes", lang)],
+        [t("btn_groups", lang), t("btn_wallet", lang)], # <-- ADDED "My Wallet" button
+        [t("btn_my_votes", lang)] # <-- Moved to its own row
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
