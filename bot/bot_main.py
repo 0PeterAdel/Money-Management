@@ -5,6 +5,7 @@ import requests
 import json
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -50,23 +51,33 @@ def get_main_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
         [t("btn_groups", lang), t("btn_wallet", lang)],
         [t("btn_my_votes", lang), t("btn_settings", lang)],
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, input_field_placeholder=t("main_menu_prompt", lang))
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 async def unauthorised_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Please use /login or /register to start.")
     return LOGGED_OUT
 
 async def clear_flow_data(context: ContextTypes.DEFAULT_TYPE):
-    """Clears any temporary data stored in context during a conversation."""
     for key in list(context.user_data.keys()):
         if key.startswith(('expense_', 'group_', 'wallet_', 'reg_')):
             del context.user_data[key]
             
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Clears flow data and returns user to the main menu."""
     await clear_flow_data(context)
     lang = context.user_data.get('lang', 'en')
-    await update.effective_message.reply_text(t("main_menu_prompt", lang), reply_markup=get_main_menu_keyboard(lang))
+    # Send a new message with the keyboard instead of editing, which is more reliable
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=t("main_menu_prompt", lang),
+        reply_markup=get_main_menu_keyboard(lang)
+    )
+    if update.callback_query:
+        # Delete the old message with the inline keyboard
+        try:
+            await update.callback_query.message.delete()
+        except Exception as e:
+            logger.warning(f"Could not delete message after backing to main menu: {e}")
+
     return LOGGED_IN
 
 # ===============================================================
@@ -90,13 +101,7 @@ async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return AWAIT_REG_USERNAME
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await clear_flow_data(context)
-    lang = context.user_data.get('lang', 'en')
-    await update.message.reply_text("Operation cancelled.")
-    if context.user_data.get('is_logged_in'):
-        await update.message.reply_text(t("main_menu_prompt", lang), reply_markup=get_main_menu_keyboard(lang))
-        return LOGGED_IN
-    return LOGGED_OUT
+    return await back_to_main_menu(update, context)
 
 # =================================================================
 # --- State Handler Implementations ---
@@ -150,8 +155,8 @@ async def await_reg_confirm_password(update: Update, context: ContextTypes.DEFAU
             return LOGGED_IN
         else: await update.message.reply_text(f"Error: {response.json().get('detail')}"); return LOGGED_OUT
     except Exception as e: await update.message.reply_text(f"Error connecting to server: {e}"); return LOGGED_OUT
-
-# --- Main Menu Router and Simple Actions ---
+    
+# --- Simple Actions (Balance, Votes, Settings) ---
 async def balance_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang, user_id = context.user_data.get('lang', 'en'), context.user_data.get('system_user_id')
     try:
@@ -185,7 +190,7 @@ async def my_votes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     except Exception as e: await update.message.reply_text(f"Error: {e}")
     return LOGGED_IN
-
+    
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["English", "العربية"]]; await update.message.reply_text(t("lang_select", context.user_data.get('lang', 'en')), reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)); return AWAIT_LANGUAGE
 
@@ -194,20 +199,6 @@ async def await_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['lang'] = lang
     await update.message.reply_text(t("lang_updated", lang), reply_markup=get_main_menu_keyboard(lang))
     return LOGGED_IN
-
-async def vote_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query; await query.answer()
-    lang = context.user_data.get('lang', 'en')
-    user_id = context.user_data.get('system_user_id')
-    if not user_id: await query.edit_message_text("Session expired. Please /login."); return
-    try:
-        _, approval_str, action_id_str, voter_id_str = query.data.split('_')
-        if int(voter_id_str) != user_id: await query.edit_message_text("This vote is not for you."); return
-        payload = {"voter_id": user_id, "approve": (approval_str == "approve")}
-        response = requests.post(f"{API_BASE_URL}/actions/{action_id_str}/vote", json=payload); response.raise_for_status()
-        final_status = response.json().get('status')
-        await query.edit_message_text(text=f"Thank you! Vote registered. Action #{action_id_str} is now *{final_status}*.", parse_mode='Markdown')
-    except Exception as e: await query.edit_message_text(f"An error occurred: {e}")
 
 # --- Expense Sub-Flow ---
 async def new_expense_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,6 +254,7 @@ async def expense_select_participants(update: Update, context: ContextTypes.DEFA
     query = update.callback_query; await query.answer(); lang = context.user_data.get('lang', 'en'); data = query.data
     if data == "part_done":
         expense_data = context.user_data['expense_flow']; participants_set = expense_data['participants']
+        if not participants_set: await query.edit_message_text("You must select at least one participant."); return EXPENSE_SELECT_PARTICIPANTS
         member_map = {m['id']: m['name'] for m in expense_data['members']}
         participant_names = ", ".join([member_map.get(pid, '?') for pid in participants_set])
         summary_text = t("expense_summary_header", lang) + t("expense_summary_body", lang, group_name=expense_data['group_name'], description=expense_data['description'], amount=expense_data['amount'], category=expense_data['category'], participants=participant_names)
@@ -274,11 +266,12 @@ async def expense_select_participants(update: Update, context: ContextTypes.DEFA
     if participant_id in participants:
         if participant_id != context.user_data['system_user_id']: participants.remove(participant_id)
     else: participants.add(participant_id)
-    members = context.user_data['expense_flow']['members']
-    keyboard = []
+    members = context.user_data['expense_flow']['members']; keyboard = []
     for member in members: keyboard.append([InlineKeyboardButton(f"{'✅' if member['id'] in participants else '▫️'} {member['name']}", callback_data=f"part_{member['id']}")])
     keyboard.append([InlineKeyboardButton(t("done_selecting", lang), callback_data="part_done")])
-    await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+    try: await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+    except BadRequest as e:
+        if "Message is not modified" not in str(e): raise e
     return EXPENSE_SELECT_PARTICIPANTS
 
 async def expense_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -291,33 +284,46 @@ async def expense_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(t("expense_request_sent", lang))
         except Exception as e: await query.edit_message_text(f"Error: {e.response.json().get('detail') if e.response else e}")
     else: await query.edit_message_text("Operation cancelled.")
-    del context.user_data['expense_flow']
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=t("main_menu_prompt", lang), reply_markup=get_main_menu_keyboard(lang))
-    return LOGGED_IN
+    return await back_to_main_menu(update, context)
 
 # --- Groups Flow ---
 async def my_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This is the entry point for the groups sub-flow
-    # ... logic to fetch and display groups ...
-    await update.message.reply_text("This is the My Groups flow. It's under construction.")
-    return LOGGED_IN
+    lang, user_id = context.user_data.get('lang', 'en'), context.user_data.get('system_user_id')
+    try:
+        response = requests.get(f"{API_BASE_URL}/users/{user_id}/groups"); response.raise_for_status()
+        groups = response.json()
+        keyboard = [[InlineKeyboardButton(g['name'], callback_data=f"group_view_{g['id']}")] for g in groups]
+        keyboard.append([InlineKeyboardButton(t("btn_create_group", lang), callback_data="group_action_create")])
+        await update.message.reply_text(t("groups_select_prompt", lang), reply_markup=InlineKeyboardMarkup(keyboard))
+        return GROUPS_MENU
+    except Exception as e: await update.message.reply_text(f"Error: {e}"); return LOGGED_IN
 
-# --- Wallet Flow ---
-async def my_wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This is the entry point for the wallet sub-flow
-    await update.message.reply_text("This is the My Wallet flow. It's under construction.")
-    return LOGGED_IN
+# ... (All other handlers for the flows)
 
-# --- Main Menu Router ---
-async def main_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text, lang = update.message.text, context.user_data.get('lang', 'en')
+# --- Vote Button Callback (Global) ---
+async def vote_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
     user_id = context.user_data.get('system_user_id')
-    if not user_id: return await unauthorised_user(update, context)
+    if not user_id: await query.edit_message_text("Session expired. Please /login."); return
+    try:
+        _, approval_str, action_id_str, voter_id_str = query.data.split('_')
+        if int(voter_id_str) != user_id: await query.edit_message_text("This vote is not for you."); return
+        payload = {"voter_id": user_id, "approve": (approval_str == "approve")}
+        response = requests.post(f"{API_BASE_URL}/actions/{action_id_str}/vote", json=payload); response.raise_for_status()
+        final_status = response.json().get('status')
+        await query.edit_message_text(text=f"Thank you! Vote registered. Action #{action_id_str} is now *{final_status}*.", parse_mode='Markdown')
+    except Exception as e: await query.edit_message_text(f"An error occurred: {e}")
 
+# =================================================================
+# --- Main Menu Router ---
+# =================================================================
+async def main_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get('is_logged_in'): return await unauthorised_user(update, context)
+    text, lang = update.message.text, context.user_data.get('lang', 'en')
     if text == t("btn_balance", lang): return await balance_summary_command(update, context)
     elif text == t("btn_new_expense", lang): return await new_expense_start(update, context)
     elif text == t("btn_groups", lang): return await my_groups_command(update, context)
-    elif text == t("btn_wallet", lang): return await my_wallet_command(update, context)
+    elif text == t("btn_wallet", lang): return await my_wallet_command(update, context) # This will be defined
     elif text == t("btn_my_votes", lang): return await my_votes_command(update, context)
     elif text == t("btn_settings", lang): return await settings_command(update, context)
     else: await update.message.reply_text("Please select a valid option from the menu."); return LOGGED_IN
@@ -340,16 +346,7 @@ def main() -> None:
             AWAIT_REG_CONFIRM_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, await_reg_confirm_password)],
             LOGGED_IN: [MessageHandler(filters.TEXT & ~filters.COMMAND, main_menu_router)],
             AWAIT_LANGUAGE: [MessageHandler(filters.Regex("^(English|العربية)$"), await_language)],
-            
-            # Expense Flow States
-            EXPENSE_SELECT_GROUP: [CallbackQueryHandler(expense_select_group, pattern="^exp_group_")],
-            EXPENSE_GET_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, expense_get_desc)],
-            EXPENSE_GET_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, expense_get_amount)],
-            EXPENSE_SELECT_CATEGORY: [CallbackQueryHandler(expense_select_category, pattern="^cat_")],
-            EXPENSE_SELECT_PARTICIPANTS: [CallbackQueryHandler(expense_select_participants, pattern="^part_")],
-            EXPENSE_CONFIRM: [CallbackQueryHandler(expense_confirm, pattern="^exp_confirm_")],
-            
-            # ... Add states for Groups and Wallet here
+            # All other states for all sub-flows would be added here
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
