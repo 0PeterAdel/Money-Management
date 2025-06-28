@@ -39,7 +39,7 @@ translations = {
         "btn_create_group": "➕ Create New Group",
         "group_details_header": "Details for group *{group_name}*:",
         "group_members_title": "Members:",
-        "btn_add_member": "➕ Add Member", "btn_remove_member": "➖ Remove Member", "btn_view_wallet": "💰 View Wallet", "btn_back_to_groups": "⬅️ Back to Groups",
+        "btn_add_member": "➕ Add Member", "btn_remove_member": "➖ Remove Member", "btn_view_wallet": "💰 View Wallet", "btn_back_to_groups": "⬅️ Back to Groups", "btn_back_to_main": "⬅️ Main Menu",
         "ask_add_member_name": "Who do you want to add? Please type their exact username.",
         "user_not_found": "❌ User '{username}' not found. Please check the spelling.",
         "user_already_in_group": "User '{username}' is already in this group.",
