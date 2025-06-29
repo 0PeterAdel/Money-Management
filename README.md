@@ -61,7 +61,7 @@ This system is packed with features designed for real-world collaborative financ
 
 The project is organized into two main components: the FastAPI backend and the Telegram Bot frontend.
 
-
+```
 Money-Management/
 ├── .env                  # <-- Store your secret keys here (e.g., bot token)
 ├── .gitignore            # <-- Ensures secret files are not uploaded to Git
@@ -77,7 +77,7 @@ Money-Management/
 │   ├── bot_main.py       # The main, all-in-one bot application file
 │   └── locales.py        # Contains all English and Arabic text strings
 └── venv/                 # Python virtual environment
-
+```
 
 ---
 
