@@ -81,6 +81,36 @@ Money-Management/
 
 ---
 
+## 🖥️ Frontend Web Application
+
+In addition to the Telegram bot interface, this project now includes a **modern React frontend** that provides a complete web-based user interface for all financial management features.
+
+### Frontend Features
+- **Modern UI/UX**: Clean, responsive design with dark/light mode support
+- **Complete Feature Parity**: All backend functionality accessible through the web interface
+- **Real-time Updates**: Live notifications and data synchronization
+- **Mobile-Friendly**: Fully responsive design for all devices
+- **Accessibility**: WCAG compliant with keyboard navigation support
+
+### Frontend Tech Stack
+- React 18 + TypeScript + Vite
+- Tailwind CSS + Radix UI components
+- Comprehensive API integration
+- Production-ready build system
+
+### Frontend Setup
+```bash
+cd frontend
+npm install
+cp .env.example .env
+# Update VITE_API_BASE_URL in .env to point to your backend
+npm run dev
+```
+
+For detailed frontend documentation, see [`frontend/README.md`](frontend/README.md).
+
+---
+
 ## 🚀 Getting Started
 
 Follow these steps to get the project running on your local machine.
