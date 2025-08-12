@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from models import WalletTransactionType, ActionType, ActionStatus
 # Make sure notifications.py exists and is correctly configured
 from notifications import send_telegram_message
+from fastapi.middleware.cors import CORSMiddleware
 
 # --- Create all database tables ---
 models.Base.metadata.create_all(bind=engine)
@@ -23,6 +24,20 @@ app = FastAPI(
     title="Financial Assistant API",
     version="6.0",
     description="The ultimate collaborative finance API with a secure voting and confirmation system."
+)
+
+origins = [
+    "http://localhost:12000",
+    "http://127.0.0.1:12000",
+    "http://0.0.0.0:12000"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Startup Event to Seed Default Categories ---
@@ -45,6 +60,20 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# =================================================================
+class GroupResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+
+
 
 # =================================================================
 # DTOs (Pydantic Models) - Defines the shape of API data
@@ -213,7 +242,7 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
 def create_group(group: GroupCreate, db: Session = Depends(get_db)):
     new_group = models.Group(**group.dict()); db.add(new_group); db.commit(); db.refresh(new_group); return new_group
 
-@app.get("/groups", response_model=List[Group], tags=["Groups & Members"])
+@app.get("/groups", response_model=List[GroupResponse], tags=["Groups & Members"])
 def read_groups(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return db.query(models.Group).offset(skip).limit(limit).all()
 
