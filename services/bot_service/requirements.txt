@@ -1,0 +1,4 @@
+python-telegram-bot==22.1
+requests==2.32.4
+python-dotenv==1.1.1
+pydantic-settings==2.7.1
