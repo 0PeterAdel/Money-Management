@@ -12,8 +12,8 @@ import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/hooks/use-toast';
 
 const loginSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
-  password: z.string().min(1, 'Password is required'),
+  username_or_email: z.string().min(1, 'Username or email is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -42,10 +42,11 @@ export default function Login() {
         description: 'You have been successfully logged in.',
       });
       navigate('/dashboard');
-    } catch (error) {
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || 'Invalid credentials. Please try again.';
       toast({
         title: 'Login failed',
-        description: 'Invalid username or password. Please try again.',
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -76,16 +77,16 @@ export default function Login() {
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username_or_email">Username or Email</Label>
                 <Input
-                  id="username"
+                  id="username_or_email"
                   type="text"
-                  placeholder="Enter your username"
-                  {...register('username')}
-                  className={errors.username ? 'border-red-500' : ''}
+                  placeholder="Enter your username or email"
+                  {...register('username_or_email')}
+                  className={errors.username_or_email ? 'border-red-500' : ''}
                 />
-                {errors.username && (
-                  <p className="text-sm text-red-500">{errors.username.message}</p>
+                {errors.username_or_email && (
+                  <p className="text-sm text-red-500">{errors.username_or_email.message}</p>
                 )}
               </div>
 
@@ -130,6 +131,15 @@ export default function Login() {
                 )}
               </Button>
             </form>
+
+            <div className="mt-4">
+              <Link
+                to="/forgot-password"
+                className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                Forgot password?
+              </Link>
+            </div>
 
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">
