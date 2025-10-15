@@ -9,8 +9,12 @@ __pycache__/
 venv/
 /venv/
 
-# Database file
+# Database files
 assistant.db
+assistant.db.backup_*
+*.db
+test.db
+test_*.db
 
 # Node modules
 node_modules/
