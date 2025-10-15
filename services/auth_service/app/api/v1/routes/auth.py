@@ -133,7 +133,7 @@ def create_user_session(user: User, device_info: Optional[str], ip_address: Opti
     Create user session and return refresh token
     """
     # Create refresh token
-    refresh_token = create_refresh_token({"sub": user.id, "username": user.username})
+    refresh_token = create_refresh_token({"sub": str(user.id), "username": user.username})
     
     # Store session
     expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -305,7 +305,7 @@ async def login(
     db.commit()
     
     # Create tokens
-    access_token = create_access_token(data={"sub": user.id, "username": user.username, "role": user.role.value})
+    access_token = create_access_token(data={"sub": str(user.id), "username": user.username, "role": user.role.value})
     
     # Create session with refresh token
     device_info = http_request.headers.get("user-agent")
@@ -357,7 +357,7 @@ async def refresh_token(
         )
     
     # Create new access token
-    access_token = create_access_token(data={"sub": user.id, "username": user.username, "role": user.role.value})
+    access_token = create_access_token(data={"sub": str(user.id), "username": user.username, "role": user.role.value})
     
     return TokenResponse(
         access_token=access_token,
