@@ -1,0 +1,147 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (can use SQLite for development)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     POSTGRES_DB: money_management
+  #     POSTGRES_USER: admin
+  #     POSTGRES_PASSWORD: admin123
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - app_network
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Auth Service
+  auth_service:
+    build:
+      context: ./services/auth_service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=sqlite:///./assistant.db
+      - SECRET_KEY=your-secret-key-change-in-production
+    volumes:
+      - ./services/auth_service/app:/app/app
+      - ./assistant.db:/app/assistant.db
+    networks:
+      - app_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Notification Service
+  notification_service:
+    build:
+      context: ./services/notification_service
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./services/notification_service/app:/app/app
+    networks:
+      - app_network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery Worker for Notifications
+  celery_worker:
+    build:
+      context: ./services/notification_service
+      dockerfile: Dockerfile
+    command: celery -A app.core.celery_config worker --loglevel=info
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./services/notification_service/app:/app/app
+    networks:
+      - app_network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Bot Service
+  bot_service:
+    build:
+      context: ./services/bot_service
+      dockerfile: Dockerfile
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - API_GATEWAY_URL=http://gateway:8000
+    volumes:
+      - ./services/bot_service/app:/app/app
+    networks:
+      - app_network
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+  # API Gateway
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth_service:8001
+      - NOTIFICATION_SERVICE_URL=http://notification_service:8002
+    volumes:
+      - ./gateway/app:/app/app
+    networks:
+      - app_network
+    depends_on:
+      - auth_service
+      - notification_service
+    restart: unless-stopped
+
+  # Frontend (React/Vite)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "12000:12000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    networks:
+      - app_network
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
