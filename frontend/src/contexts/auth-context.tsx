@@ -1,14 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from '@/services/api';
-import type { AuthUser, LoginRequest, UserCreate } from '@/types/api';
+import type { 
+  AuthUser, 
+  LoginRequest, 
+  SignupRequest, 
+  PasswordChangeRequest,
+  VerifyOTPRequest 
+} from '@/types/api';
 
 interface AuthContextType {
   user: AuthUser | null;
   login: (credentials: LoginRequest) => Promise<void>;
-  register: (userData: UserCreate) => Promise<void>;
-  logout: () => void;
+  signup: (userData: SignupRequest) => Promise<{ requiresOTP: boolean }>;
+  verifyOTP: (data: VerifyOTPRequest) => Promise<void>;
+  logout: () => Promise<void>;
+  changePassword: (data: PasswordChangeRequest) => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
   updateUser: (user: AuthUser) => void;
   isLoading: boolean;
+  isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -18,38 +28,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in
-    const currentUser = authService.getCurrentUser();
-    setUser(currentUser);
-    setIsLoading(false);
+    // Check if user is already logged in (has valid token)
+    const loadUser = async () => {
+      try {
+        const currentUser = await authService.getCurrentUser();
+        setUser(currentUser);
+      } catch (error) {
+        // Token invalid or expired, clear storage
+        authService.clearTokens();
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadUser();
   }, []);
 
   const login = async (credentials: LoginRequest) => {
     try {
-      const user = await authService.login(credentials);
-      setUser(user);
+      const response = await authService.login(credentials);
+      setUser(response.user);
     } catch (error) {
       throw error;
     }
   };
 
-  const register = async (userData: UserCreate) => {
+  const signup = async (userData: SignupRequest) => {
     try {
-      const user = await authService.register(userData);
-      setUser({
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        telegram_id: user.telegram_id,
-      });
+      const response = await authService.signup(userData);
+      // Don't set user yet if OTP verification is required
+      return { requiresOTP: response.requiresOTP };
     } catch (error) {
       throw error;
     }
   };
 
-  const logout = () => {
-    authService.logout();
-    setUser(null);
+  const verifyOTP = async (data: VerifyOTPRequest) => {
+    try {
+      const response = await authService.verifyOTP(data);
+      setUser(response.user);
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await authService.logout();
+    } catch (error) {
+      // Logout anyway even if API call fails
+      console.error('Logout error:', error);
+    } finally {
+      authService.clearTokens();
+      setUser(null);
+    }
+  };
+
+  const changePassword = async (data: PasswordChangeRequest) => {
+    try {
+      await authService.changePassword(data);
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const deleteAccount = async (password: string) => {
+    try {
+      await authService.deleteAccount(password);
+      authService.clearTokens();
+      setUser(null);
+    } catch (error) {
+      throw error;
+    }
   };
 
   const updateUser = (updatedUser: AuthUser) => {
@@ -59,10 +110,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = {
     user,
     login,
-    register,
+    signup,
+    verifyOTP,
     logout,
+    changePassword,
+    deleteAccount,
     updateUser,
     isLoading,
+    isAuthenticated: !!user,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

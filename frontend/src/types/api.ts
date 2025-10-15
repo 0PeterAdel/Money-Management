@@ -4,7 +4,9 @@ export interface User {
   id: number;
   name: string;
   username: string;
+  email?: string;
   telegram_id?: string;
+  role?: UserRole;
 }
 
 export interface UserCreate {
@@ -192,15 +194,113 @@ export type ActionType = "EXPENSE" | "WALLET_DEPOSIT" | "MEMBER_ADD" | "MEMBER_R
 
 export type WalletTransactionType = "DEPOSIT" | "EXPENSE" | "WITHDRAWAL" | "SETTLEMENT";
 
-// Auth types
+// Auth types - Enhanced JWT Authentication
+
+export type UserRole = 'USER' | 'ADMIN';
+
 export interface LoginRequest {
-  username: string;
+  username_or_email: string;
   password: string;
+}
+
+export interface SignupRequest {
+  username: string;
+  name: string;
+  email: string;
+  password: string;
+  telegram_id?: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface RefreshTokenRequest {
+  refresh_token: string;
+}
+
+export interface VerifyOTPRequest {
+  username_or_email: string;
+  otp_code: string;
+}
+
+export interface PasswordResetRequest {
+  email: string;
+}
+
+export interface PasswordResetConfirm {
+  email: string;
+  otp_code: string;
+  new_password: string;
+}
+
+export interface PasswordChangeRequest {
+  current_password: string;
+  new_password: string;
 }
 
 export interface AuthUser {
   id: number;
   name: string;
   username: string;
+  email: string;
+  role: UserRole;
   telegram_id?: string;
+  is_active: boolean;
+  is_banned: boolean;
+  created_at: string;
+  last_login?: string;
+}
+
+// Admin Panel Types
+
+export interface AdminUserUpdate {
+  name?: string;
+  email?: string;
+  role?: UserRole;
+  is_active?: boolean;
+}
+
+export interface AdminUserListParams {
+  skip?: number;
+  limit?: number;
+  search?: string;
+  role?: UserRole;
+  is_active?: boolean;
+  is_banned?: boolean;
+}
+
+export interface AdminUserListResponse {
+  users: AuthUser[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface AdminStatsResponse {
+  total_users: number;
+  active_users: number;
+  banned_users: number;
+  admin_users: number;
+  inactive_users: number;
+}
+
+export interface NotificationRequest {
+  message: string;
+  priority?: 'low' | 'medium' | 'high';
+}
+
+export type OTPMethod = 'disabled' | 'email' | 'telegram';
+
+export interface OTPConfigResponse {
+  otp_method: OTPMethod;
+  otp_expiry_minutes: number;
+}
+
+export interface OTPConfigUpdate {
+  otp_method: OTPMethod;
+  otp_expiry_minutes: number;
 }
