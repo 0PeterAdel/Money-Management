@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.base import engine
 from app.db.models.user import Base
-from app.api.v1.routes import register, login, users
+from app.api.v1.routes import register, login, users, auth, admin
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -16,7 +16,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
-    description="Authentication and User Management Service"
+    description="Authentication and User Management Service - Enhanced with JWT & OTP"
 )
 
 # CORS middleware
@@ -28,9 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(register.router, prefix=settings.API_V1_PREFIX, tags=["Registration"])
-app.include_router(login.router, prefix=settings.API_V1_PREFIX, tags=["Authentication"])
+# Include enhanced authentication routes
+app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["🔐 Authentication"])
+app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["👑 Admin Panel"])
+
+# Include legacy routes (backward compatibility)
+app.include_router(register.router, prefix=settings.API_V1_PREFIX, tags=["Legacy - Registration"])
+app.include_router(login.router, prefix=settings.API_V1_PREFIX, tags=["Legacy - Authentication"])
 app.include_router(users.router, prefix=settings.API_V1_PREFIX, tags=["Users & Groups"])
 
 
