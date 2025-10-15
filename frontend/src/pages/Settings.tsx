@@ -36,7 +36,14 @@ export default function Settings() {
     try {
       setIsLoading(true);
       const response = await userService.updateProfile(formData);
-      updateUser(response);
+      // Update user context with the new data
+      if (user) {
+        updateUser({
+          ...user,
+          name: response.name,
+          telegram_id: response.telegram_id,
+        });
+      }
       toast({
         title: 'Success',
         description: 'Profile updated successfully',

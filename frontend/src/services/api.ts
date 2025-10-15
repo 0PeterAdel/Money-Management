@@ -20,9 +20,7 @@ import type {
   LoginRequest,
   SignupRequest,
   TokenResponse,
-  RefreshTokenRequest,
   VerifyOTPRequest,
-  PasswordResetRequest,
   PasswordResetConfirm,
   PasswordChangeRequest,
   AuthUser,
@@ -314,7 +312,7 @@ export const userService = {
     return response.data;
   },
 
-  async changePassword(passwordData: ChangePasswordRequest): Promise<MessageResponse> {
+  async changePassword(passwordData: PasswordChangeRequest): Promise<MessageResponse> {
     const response = await api.put('/users/change-password', passwordData);
     return response.data;
   },
