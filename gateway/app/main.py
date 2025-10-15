@@ -59,16 +59,16 @@ async def gateway_proxy(path: str, request: Request):
     """Main gateway proxy - routes requests to appropriate services"""
     
     # Determine which service to route to based on path
-    if any(x in path for x in ["register", "link-telegram", "users", "groups"]):
+    if any(x in path for x in ["auth", "admin", "register", "link-telegram", "users", "groups"]):
         target_url = f"{AUTH_SERVICE_URL}/api/v1/{path}"
-    elif any(x in path for x in ["send-email", "send-sms", "send-push"]):
+    elif any(x in path for x in ["send-email", "send-sms", "send-push", "notification"]):
         target_url = f"{NOTIFICATION_SERVICE_URL}/api/v1/{path}"
     else:
         # Handle main.py routes from original monolith
         # For now, return not found
         return JSONResponse(
             status_code=404,
-            content={"detail": "Route not found or not yet migrated"}
+            content={"detail": f"Route not found: /api/v1/{path}. Service routes: auth, admin, users, groups, notification"}
         )
     
     # Get request body
