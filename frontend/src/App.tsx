@@ -6,12 +6,17 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import Layout from '@/components/layout/Layout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
 import Dashboard from '@/pages/Dashboard';
 import Groups from '@/pages/Groups';
 import Expenses from '@/pages/Expenses';
 import Wallet from '@/pages/Wallet';
 import Notifications from '@/pages/Notifications';
 import Settings from '@/pages/Settings';
+import AdminDashboard from '@/pages/AdminDashboard';
+import AdminUsers from '@/pages/AdminUsers';
+import AdminSettings from '@/pages/AdminSettings';
 
 function App() {
   return (
@@ -23,6 +28,8 @@ function App() {
               {/* Public routes */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               
               {/* Protected routes */}
               <Route
@@ -40,6 +47,11 @@ function App() {
                 <Route path="wallet" element={<Wallet />} />
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="settings" element={<Settings />} />
+                
+                {/* Admin routes */}
+                <Route path="admin/dashboard" element={<AdminDashboard />} />
+                <Route path="admin/users" element={<AdminUsers />} />
+                <Route path="admin/settings" element={<AdminSettings />} />
               </Route>
               
               {/* Catch all route */}
