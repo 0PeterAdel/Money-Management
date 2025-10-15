@@ -36,47 +36,64 @@ async def send_otp_notification(
     otp_code: str,
     purpose: str,
     db: Session
-) -> bool:
+) -> dict:
     """
-    Send OTP via configured method (Telegram or Email)
+    Send OTP via BOTH Email AND Telegram (dual-channel delivery)
+    Returns: dict with success status for each channel
     """
     # Get OTP method from system config
     config = db.query(SystemConfig).filter(SystemConfig.key == "otp_method").first()
-    otp_method = config.value if config else "disabled"
+    otp_method = config.value if config else "email"  # Default to email
     
     if otp_method == "disabled":
         # OTP is disabled, auto-activate for dev
-        return True
+        return {"email": False, "telegram": False, "disabled": True}
     
     # Prepare notification message
     if purpose == "signup":
-        message = f"Welcome! Your verification code is: {otp_code}\nValid for {settings.OTP_EXPIRY_MINUTES} minutes."
+        message = f"🎉 Welcome to Money Management!\n\nYour verification code is: {otp_code}\n\n⏰ Valid for {settings.OTP_EXPIRY_MINUTES} minutes.\n\n🔒 Never share this code with anyone."
         subject = "Account Verification Code"
     elif purpose == "reset_password":
-        message = f"Password reset code: {otp_code}\nValid for {settings.OTP_EXPIRY_MINUTES} minutes."
+        message = f"🔐 Password Reset Request\n\nYour reset code is: {otp_code}\n\n⏰ Valid for {settings.OTP_EXPIRY_MINUTES} minutes.\n\n⚠️ If you didn't request this, please ignore this message."
         subject = "Password Reset Code"
     else:
-        message = f"Your verification code is: {otp_code}"
+        message = f"Your verification code is: {otp_code}\n\nValid for {settings.OTP_EXPIRY_MINUTES} minutes."
         subject = "Verification Code"
     
+    results = {"email": False, "telegram": False}
+    
     try:
-        async with httpx.AsyncClient() as client:
-            if otp_method == "telegram" and user.telegram_id:
-                # Send via Telegram
-                await client.post(
-                    f"{settings.NOTIFICATION_SERVICE_URL}/api/v1/send-telegram",
-                    json={"chat_id": str(user.telegram_id), "message": message}
-                )
-            elif otp_method == "email":
-                # Send via Email
-                await client.post(
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Always try to send via Email
+            try:
+                email_response = await client.post(
                     f"{settings.NOTIFICATION_SERVICE_URL}/api/v1/send-email",
                     json={"to_email": user.email, "subject": subject, "body": message}
                 )
-            return True
+                results["email"] = email_response.status_code == 200
+                if results["email"]:
+                    print(f"✅ OTP sent via Email to {user.email}")
+            except Exception as e:
+                print(f"❌ Failed to send OTP via Email: {e}")
+            
+            # Also try to send via Telegram if telegram_id is available
+            if user.telegram_id:
+                try:
+                    telegram_response = await client.post(
+                        f"{settings.NOTIFICATION_SERVICE_URL}/api/v1/send-telegram",
+                        json={"chat_id": str(user.telegram_id), "message": message}
+                    )
+                    results["telegram"] = telegram_response.status_code == 200
+                    if results["telegram"]:
+                        print(f"✅ OTP sent via Telegram to {user.telegram_id}")
+                except Exception as e:
+                    print(f"❌ Failed to send OTP via Telegram: {e}")
+            
+            # Success if at least one channel worked
+            return results
     except Exception as e:
-        print(f"Failed to send OTP notification: {e}")
-        return False
+        print(f"❌ Critical error sending OTP notification: {e}")
+        return results
 
 
 def create_otp_code(user_id: int, purpose: str, db: Session) -> str:
@@ -216,11 +233,23 @@ async def signup(
     
     # Generate and send OTP
     otp_code = create_otp_code(user.id, "signup", db)
-    await send_otp_notification(user, otp_code, "signup", db)
+    delivery_status = await send_otp_notification(user, otp_code, "signup", db)
+    
+    # Build message based on delivery success
+    channels_sent = []
+    if delivery_status.get("email"):
+        channels_sent.append("email")
+    if delivery_status.get("telegram"):
+        channels_sent.append("Telegram")
+    
+    if channels_sent:
+        message = f"Registration successful! Verification code sent to your {' and '.join(channels_sent)}."
+    else:
+        message = "Registration successful! Please check your email for verification code."
     
     return MessageResponse(
-        message="Registration successful! Please check your email/telegram for verification code.",
-        detail=f"User ID: {user.id}"
+        message=message,
+        detail=f"otp_sent_via: {','.join(channels_sent) if channels_sent else 'none'}"
     )
 
 
