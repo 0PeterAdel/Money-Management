@@ -36,11 +36,8 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [requiresOTP, setRequiresOTP] = useState(false);
-  const [otpCode, setOTPCode] = useState('');
-  const [registeredEmail, setRegisteredEmail] = useState('');
   
-  const { signup, verifyOTP } = useAuth();
+  const { signup } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -73,7 +70,7 @@ export default function Register() {
   const onSubmit = async (data: RegisterForm) => {
     setIsLoading(true);
     try {
-      const { requiresOTP: needsOTP } = await signup({
+      await signup({
         username: data.username,
         name: data.name,
         email: data.email,
@@ -81,58 +78,23 @@ export default function Register() {
         telegram_id: data.telegram_id || undefined,
       });
 
-      if (needsOTP) {
-        setRequiresOTP(true);
-        setRegisteredEmail(data.email);
-        toast({
-          title: 'Verification required',
-          description: 'Please check your email for the OTP code.',
-        });
-      } else {
-        toast({
-          title: 'Account created!',
-          description: 'Your account has been created successfully.',
-        });
-        navigate('/dashboard');
-      }
+      // Always redirect to OTP verification page after successful signup
+      toast({
+        title: 'Registration successful!',
+        description: 'Please verify your account with the OTP sent to your email and Telegram.',
+      });
+      
+      navigate('/verify-otp', {
+        state: {
+          email: data.email,
+          username: data.username,
+          fromSignup: true,
+        },
+      });
     } catch (error: any) {
       const message = error?.response?.data?.detail || 'An error occurred during registration.';
       toast({
         title: 'Registration failed',
-        description: message,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleOTPVerification = async () => {
-    if (!otpCode || otpCode.length !== 6) {
-      toast({
-        title: 'Invalid OTP',
-        description: 'Please enter a valid 6-digit OTP code.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      await verifyOTP({
-        username_or_email: registeredEmail,
-        otp_code: otpCode,
-      });
-
-      toast({
-        title: 'Account verified!',
-        description: 'Your account has been verified successfully.',
-      });
-      navigate('/dashboard');
-    } catch (error: any) {
-      const message = error?.response?.data?.detail || 'Invalid or expired OTP code.';
-      toast({
-        title: 'Verification failed',
         description: message,
         variant: 'destructive',
       });
@@ -162,57 +124,7 @@ export default function Register() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {requiresOTP ? (
-              // OTP Verification Form
-              <div className="space-y-4">
-                <div className="text-center mb-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    We've sent a 6-digit verification code to <strong>{registeredEmail}</strong>
-                  </p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="otp">Verification Code</Label>
-                  <Input
-                    id="otp"
-                    type="text"
-                    maxLength={6}
-                    placeholder="Enter 6-digit code"
-                    value={otpCode}
-                    onChange={(e) => setOTPCode(e.target.value.replace(/\D/g, ''))}
-                    className="text-center text-2xl tracking-widest"
-                  />
-                </div>
-
-                <Button
-                  type="button"
-                  onClick={handleOTPVerification}
-                  className="w-full"
-                  disabled={isLoading || otpCode.length !== 6}
-                >
-                  {isLoading ? (
-                    <div className="flex items-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Verifying...
-                    </div>
-                  ) : (
-                    'Verify Code'
-                  )}
-                </Button>
-
-                <div className="text-center">
-                  <button
-                    type="button"
-                    onClick={() => setRequiresOTP(false)}
-                    className="text-sm text-blue-600 hover:text-blue-500"
-                  >
-                    ← Back to registration
-                  </button>
-                </div>
-              </div>
-            ) : (
-              // Registration Form
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="username">Username</Label>
                   <Input
@@ -365,7 +277,6 @@ export default function Register() {
                   </p>
                 </div>
               </form>
-            )}
           </CardContent>
         </Card>
       </div>
