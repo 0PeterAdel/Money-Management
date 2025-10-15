@@ -2,14 +2,16 @@
   <img src="static/logo.png" alt="Project Logo" width="150"/>
 </p>
 
-<h1 align="center">Collaborative Finance Assistant</h1>
+<h1 align="center">Money Management System - Microservices Edition</h1>
 
 <p align="center">
-  <strong>An intelligent, self-hosted financial assistant managed via Telegram, designed for collaborative group and personal expense tracking.</strong>
+  <strong>A modern microservices-based financial assistant with Telegram bot, web interface, and collaborative expense tracking.</strong>
   <br><br>
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/Framework-FastAPI-05998b.svg" alt="Framework">
   <img src="https://img.shields.io/badge/Bot-python--telegram--bot-blue.svg" alt="Telegram Bot">
+  <img src="https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61dafb.svg" alt="Frontend">
+  <img src="https://img.shields.io/badge/Architecture-Microservices-green.svg" alt="Architecture">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
@@ -19,11 +21,16 @@
 
 ## 📜 About The Project
 
-This project is a comprehensive, self-hosted financial management system designed to function as a personal and group financial assistant. It moves beyond simple expense logging by introducing a layer of collaborative governance, where financial entries and deposits require confirmation from group members, ensuring transparency and trust.
+This is a comprehensive, self-hosted financial management system built with a **modern microservices architecture**. The system features:
 
-The entire system is controlled through a sophisticated, bilingual (English/Arabic) Telegram bot that offers a seamless, conversational user experience. The backend is a robust API built with FastAPI, handling all the complex logic, data storage, and security.
+- **Microservices Architecture**: Independently deployable services for auth, notifications, and bot functionality
+- **API Gateway**: Centralized routing and request handling
+- **Modern Web Interface**: React + TypeScript frontend with beautiful UI
+- **Telegram Bot**: Bilingual (English/Arabic) conversational bot interface
+- **Collaborative Features**: Democratic voting system for expenses and deposits
+- **Scalable Design**: Docker-based deployment with container orchestration
 
-The ultimate goal is to create a "Jarvis" for personal and group life management, starting with the most critical aspect: finances.
+The system moves beyond simple expense logging by introducing collaborative governance, where financial entries and deposits require confirmation from group members, ensuring transparency and trust.
 
 ---
 
@@ -57,82 +64,176 @@ This system is packed with features designed for real-world collaborative financ
 
 ---
 
-## 🏗️ Project Structure
+## 🏗️ Microservices Architecture
 
-The project is organized into two main components: the FastAPI backend and the Telegram Bot frontend.
+The project follows a **modern microservices architecture** with the following components:
 
 ```
 Money-Management/
-├── .env                  # <-- Store your secret keys here (e.g., bot token)
-├── .gitignore            # <-- Ensures secret files are not uploaded to Git
-├── main.py               # FastAPI application: The core backend API
-├── models.py             # SQLAlchemy database models (the schema)
-├── database.py           # Database engine and session configuration
-├── security.py           # Password hashing and verification functions
-├── config.py             # Loads environment variables from .env
-├── notifications.py      # (Optional) Helper for sending notifications
-├── requirements.txt      # List of all Python dependencies
-├── bot/                  # Directory for all Telegram Bot code
-│   ├── init.py
-│   ├── bot_main.py       # The main, all-in-one bot application file
-│   └── locales.py        # Contains all English and Arabic text strings
-└── venv/                 # Python virtual environment
+├── services/
+│   ├── auth_service/          # Authentication & User Management Service
+│   │   ├── app/
+│   │   │   ├── api/v1/routes/ # API endpoints (login, register, users, groups)
+│   │   │   ├── core/          # Config & security utilities
+│   │   │   ├── db/            # Database models & session
+│   │   │   ├── schemas/       # Pydantic schemas
+│   │   │   └── main.py        # Service entry point
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   │
+│   ├── notification_service/  # Notification Service (Email, SMS, Push)
+│   │   ├── app/
+│   │   │   ├── api/v1/routes/ # Notification endpoints
+│   │   │   ├── core/          # Config & Celery setup
+│   │   │   ├── workers/       # Celery workers (email, sms)
+│   │   │   └── main.py
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   │
+│   └── bot_service/           # Telegram Bot Service
+│       ├── app/
+│       │   ├── bot_main.py    # Bot application
+│       │   ├── locales.py     # Translations (EN/AR)
+│       │   └── core/          # Configuration
+│       ├── Dockerfile
+│       └── requirements.txt
+│
+├── gateway/                   # API Gateway (Request Router)
+│   ├── app/
+│   │   ├── main.py           # Gateway routing logic
+│   │   └── routes/           # Service proxy routes
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── shared/                    # Shared utilities across services
+│   ├── utils/                # Logging, exceptions
+│   ├── database/             # Base database classes
+│   └── schemas/              # Common schemas
+│
+├── frontend/                  # React + TypeScript Web Application
+│   ├── src/                  # React components & pages
+│   ├── public/               # Static assets
+│   ├── Dockerfile
+│   └── package.json
+│
+├── docker-compose.yml        # Container orchestration
+├── .env.docker              # Docker environment variables
+└── README.md                # This file
+```
+
+### Service Communication
+
+```
+┌─────────────┐
+│   Frontend  │ (Port 12000)
+│  React/TS   │
+└──────┬──────┘
+       │
+       ↓
+┌─────────────┐
+│ API Gateway │ (Port 8000)
+└──────┬──────┘
+       │
+       ├─────→ Auth Service (Port 8001)
+       │         ↓ SQLite/PostgreSQL
+       │
+       ├─────→ Notification Service (Port 8002)
+       │         ↓ Redis + Celery Workers
+       │
+       └─────→ Bot Service
+                 ↓ Telegram API
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-Follow these steps to get the project running on your local machine.
-
 ### Prerequisites
 
-* Python 3.11+
-* `pip` for package management
+- **Docker** and **Docker Compose** (Recommended)
+- **Node.js 20+** (for frontend development)
+- **Python 3.11+** (for local development without Docker)
 
-### Installation & Setup
+### Quick Start with Docker (Recommended)
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd Money-Management
-    ```
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repository-url>
+   cd Money-Management
+   ```
 
-2.  **Create and activate a virtual environment:**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
+2. **Configure environment variables:**
+   ```bash
+   cp .env.docker .env
+   # Edit .env and add your TELEGRAM_BOT_TOKEN
+   ```
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-    *(If `requirements.txt` does not exist, create it with `pip freeze > requirements.txt` after installing the packages mentioned below).*
+3. **Start all services:**
+   ```bash
+   docker-compose up -d
+   ```
 
-4.  **Create the `.env` file:**
-    Create a file named `.env` in the project root and add your Telegram bot token:
-    ```env
-    TELEGRAM_BOT_TOKEN="YOUR_BOT_TOKEN_HERE_FROM_BOTFATHER"
-    ```
+4. **Access the application:**
+   - Frontend: http://localhost:12000
+   - API Gateway: http://localhost:8000
+   - Auth Service: http://localhost:8001
+   - Notification Service: http://localhost:8002
 
-### Running the Application
+5. **View logs:**
+   ```bash
+   docker-compose logs -f
+   ```
 
-This project requires **two separate terminals** to run simultaneously: one for the API and one for the Telegram Bot.
+6. **Stop all services:**
+   ```bash
+   docker-compose down
+   ```
 
-1.  **Terminal 1: Start the Backend API**
-    Make sure your virtual environment is activated, then run:
-    ```bash
-    uvicorn main:app --reload
-    ```
-    The API will be available at `http://127.0.0.1:8000`. You can see the interactive documentation at `http://127.0.0.1:8000/docs`.
+### Local Development (Without Docker)
 
-2.  **Terminal 2: Start the Telegram Bot**
-    Open a new terminal, activate the same virtual environment, and run:
-    ```bash
-    python -m bot.bot_main
-    ```
-    The bot is now running and will start communicating with your API.
+#### Backend Services
+
+Each service can be run independently:
+
+**1. Auth Service**
+```bash
+cd services/auth_service
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8001
+```
+
+**2. Notification Service**
+```bash
+cd services/notification_service
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8002
+```
+
+**3. Bot Service**
+```bash
+cd services/bot_service
+pip install -r requirements.txt
+export TELEGRAM_BOT_TOKEN="your_token_here"
+export API_GATEWAY_URL="http://localhost:8000"
+python -m app.bot_main
+```
+
+**4. API Gateway**
+```bash
+cd gateway
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+#### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend will be available at http://localhost:12000
 
 ---
 
@@ -151,15 +252,186 @@ This project requires **two separate terminals** to run simultaneously: one for 
 
 ## 🛠️ Technology Stack
 
-* **Backend:** FastAPI, SQLAlchemy, Pydantic
-* **Database:** SQLite (for simplicity, easily upgradable to PostgreSQL)
-* **Bot Framework:** `python-telegram-bot`
-* **Security:** `passlib` with `bcrypt` for password hashing
-* **Configuration:** `python-dotenv`
+### Backend Services
+- **Framework:** FastAPI 0.115+
+- **ORM:** SQLAlchemy 2.0
+- **Database:** SQLite (development) / PostgreSQL (production ready)
+- **Validation:** Pydantic 2.11+
+- **Security:** Passlib + bcrypt for password hashing
+- **Task Queue:** Celery + Redis (for async notifications)
+
+### Frontend
+- **Framework:** React 19 + TypeScript
+- **Build Tool:** Vite 7
+- **UI Library:** Radix UI + Tailwind CSS
+- **State Management:** React Hooks
+- **HTTP Client:** Axios
+- **Routing:** React Router 7
+
+### Infrastructure
+- **Containerization:** Docker + Docker Compose
+- **API Gateway:** Custom FastAPI gateway with httpx
+- **Message Broker:** Redis (for Celery)
+- **Bot Framework:** python-telegram-bot 22+
+
+---
+
+## 📚 API Documentation
+
+Once the services are running, you can access the interactive API documentation:
+
+- **API Gateway:** http://localhost:8000/docs
+- **Auth Service:** http://localhost:8001/docs
+- **Notification Service:** http://localhost:8002/docs
+
+### Key Endpoints
+
+#### Auth Service (via Gateway)
+- `POST /api/v1/register` - Register new user
+- `POST /api/v1/link-telegram` - Link Telegram account
+- `GET /api/v1/users` - Get all users
+- `GET /api/v1/users/{user_id}` - Get user by ID
+- `POST /api/v1/groups` - Create group
+- `GET /api/v1/groups` - Get all groups
+
+#### Notification Service (via Gateway)
+- `POST /api/v1/send-email` - Send email notification
+- `POST /api/v1/send-sms` - Send SMS notification
+- `POST /api/v1/send-push` - Send push notification (Telegram)
+
+---
+
+## 🧪 Testing
+
+### Running Tests
+
+```bash
+# Test individual services
+cd services/auth_service
+pytest
+
+cd services/notification_service
+pytest
+```
+
+### Health Checks
+
+```bash
+# Check service health
+curl http://localhost:8000/health  # Gateway
+curl http://localhost:8001/health  # Auth Service
+curl http://localhost:8002/health  # Notification Service
+```
+
+---
+
+## 🔒 Security Considerations
+
+- **Password Hashing:** All passwords are hashed using bcrypt
+- **Environment Variables:** Sensitive data stored in `.env` files (not committed)
+- **CORS:** Configured for specific origins in production
+- **Service Isolation:** Microservices architecture provides natural security boundaries
+- **Input Validation:** Pydantic models validate all input data
+
+---
+
+## 🚢 Production Deployment
+
+### Environment Variables
+
+Create a `.env` file with production values:
+
+```bash
+# Telegram
+TELEGRAM_BOT_TOKEN=your_production_bot_token
+
+# Database (use PostgreSQL in production)
+DATABASE_URL=postgresql://user:pass@postgres:5432/money_management
+
+# Security
+SECRET_KEY=generate-a-long-random-secure-key-here
+
+# Redis
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+# Service URLs
+AUTH_SERVICE_URL=http://auth_service:8001
+NOTIFICATION_SERVICE_URL=http://notification_service:8002
+API_GATEWAY_URL=http://gateway:8000
+```
+
+### Docker Production Build
+
+```bash
+# Build images
+docker-compose build
+
+# Run in production mode
+docker-compose up -d
+
+# Scale services if needed
+docker-compose up -d --scale auth_service=3
+```
+
+---
+
+## 📈 Monitoring & Logging
+
+All services use structured logging with the shared logging utility:
+
+```bash
+# View all logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f auth_service
+docker-compose logs -f gateway
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📝 Future Enhancements
+
+- [ ] JWT authentication for API access
+- [ ] WebSocket support for real-time notifications
+- [ ] Mobile app (React Native)
+- [ ] Advanced analytics dashboard
+- [ ] Multi-currency support
+- [ ] Export reports (PDF, Excel)
+- [ ] Integration with payment gateways
+- [ ] Machine learning expense categorization
 
 ---
 
 ## 📄 License
 
 This project is distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+## 👨‍💻 Author
+
+Created with ❤️ for collaborative financial management
+
+---
+
+## 🙏 Acknowledgments
+
+- FastAPI for the amazing web framework
+- Telegram for the Bot API
+- React community for the excellent frontend tools
+- All contributors and users of this project
 
