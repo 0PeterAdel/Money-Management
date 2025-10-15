@@ -11,3 +11,11 @@ venv/
 
 # Database file
 assistant.db
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Frontend build
+frontend/dist/
+frontend/.env.local
